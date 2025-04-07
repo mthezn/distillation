@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="WebServers">
+    <option name="servers">
+      <webServer id="ce329134-361f-4a62-9c35-c708ffa497cc" name="poliMUFASA">
+        <fileTransfer rootFolder="/home/mdezen" accessType="SFTP" host="10.79.23.96" port="22" sshConfigId="63ae073b-e574-4951-90ce-407f52da0b87" sshConfig="mdezen@10.79.23.96:22 password">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" keepAliveTimeout="0" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+        </fileTransfer>
+      </webServer>
+    </option>
+  </component>
+</project>
