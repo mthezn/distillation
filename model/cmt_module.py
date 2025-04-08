@@ -105,8 +105,7 @@ class LMHSA(nn.Module):
 
         # Attention
         attn = torch.einsum('... i d, ... j d -> ... i j', q, k) * self.scaled_factor
-        print(attn.shape)
-        print(self.B.shape)
+
         attn = attn + self.B
 
         attn = torch.softmax(attn, dim = -1) # [b, heads, h * w, k_h * k_w]

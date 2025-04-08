@@ -76,18 +76,20 @@ def set_bn_state(model):
 
 def train_one_epoch(model,teacher,epoch,criterion,dataloader,optimizer,device):
     model.train()
-    scaler = GradScaler()
-    bar = tqdm(enumerate(dataloader),total=len(dataloader))
+    scaler = torch.amp.GradScaler()
+    bar = tqdm(enumerate(dataloader),total=len(dataloader),desc =f"Epoch {epoch}")
     running_loss = 0.0
     dataset_size = 0
     for i,(images,labels) in bar: #i->batch index, images->batch of images, labels->batch of labels
         optimizer.zero_grad()
-        with autocast():
+        with torch.amp.autocast(device_type = "cuda"):
 
             images = images.to(device)
-
+            optimizer.zero_grad()
+            #print(images.shape)
             outTeach = teacher(images)
             outStud = model(images)
+            torch.cuda.empty_cache()
 
             loss = criterion(outStud,outTeach)
         scaler.scale(loss).backward()

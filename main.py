@@ -28,6 +28,9 @@ from timm.utils import NativeScaler,get_state_dict,ModelEma
 import torch
 from timm.models import create_model
 from PIL import Image
+import gc
+
+
 
 seed = 42
 os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
@@ -119,11 +122,11 @@ mask_transform  = transforms.Compose([
     transforms.Resize((1024,1024)),
     transforms.ToTensor()
 ])
-datasetVal = ImageMaskDataset(image_dirs=image_dirs_val,mask_dirs=mask_dirs_val,transform=image_transform,mask_transform=mask_transform)
-dataloaderVal = DataLoader(datasetVal,batch_size=2,shuffle=True)
+#datasetVal = ImageMaskDataset(image_dirs=image_dirs_val,mask_dirs=mask_dirs_val,transform=image_transform,mask_transform=mask_transform)
+#dataloaderVal = DataLoader(datasetVal,batch_size=2,shuffle=True)
 
 dataset = ImageMaskDataset(image_dirs=image_dirs_train,mask_dirs=mask_dirs_train,transform=image_transform,mask_transform=mask_transform)
-dataloader = DataLoader(dataset,batch_size=2,shuffle=True)
+dataloader = DataLoader(dataset,batch_size=2,shuffle=True,pin_memory=True)
 for images, masks in dataloader:
     print(f"Batch di immagini: {images.shape}")  # (batch_size, 3, 224, 224)
     print(f"Batch di maschere: {masks.shape}")  # (batch_size, 1, 224, 224)
@@ -135,15 +138,17 @@ for images, masks in dataloader:
 # start_time = time.time()
 # max_accuracy = 0.0
 # max_accuracy_ema = 0.
-epochs = 10
+epochs = 1
 
 torch.cuda.empty_cache()
-
+gc.collect()
 for epoch in range(0, epochs):
     print("sto trainando")
 
     train_stats = train_one_epoch(model.image_encoder,sam.image_encoder,epoch,criterion,dataloader,optimizer,device)
-
+    torch.cuda.empty_cache()
+    gc.collect()
+    print(epoch)
     #test_stats = evaluate(dataloaderVal, model, device)
     #print(
        # f"Accuracy of the network on the {len(datasetVal)} test images: {test_stats['acc1']:.1f}%")
