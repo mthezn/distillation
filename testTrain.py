@@ -1,6 +1,22 @@
 import torch
 import torchvision
 import torchvision.transforms as transforms
+import wandb
+import weave
+wandb.login(key='14497a5de45116d579bde37168ccf06f78c2928e')  # Replace 'your_api_key' with your actual API key
+run = wandb.init(
+    # Set the wandb entity where your project will be logged (generally your team name).
+
+    # Set the wandb project where this run will be logged.
+    project="prova",
+    # Track hyperparameters and run metadata.
+    config={
+        "learning_rate": 0.01,
+        "architecture": "CNN",
+        "dataset": "fashionMNIST",
+        "epochs": 10,
+    },
+)
 
 # PyTorch TensorBoard support
 from torch.utils.tensorboard import SummaryWriter
@@ -131,12 +147,14 @@ def train_one_epoch(epoch_index, tb_writer):
 
         # Gather data and report
         running_loss += loss.item()
+
         if i % 1000 == 999:
             last_loss = running_loss / 1000  # loss per batch
             print('  batch {} loss: {}'.format(i + 1, last_loss))
             tb_x = epoch_index * len(training_loader) + i + 1
             tb_writer.add_scalar('Loss/train', last_loss, tb_x)
             running_loss = 0.
+        run.log({"train_loss": last_loss, "epoch": epoch_index + 1, "batch": i + 1})
 
     return last_loss
 
@@ -176,6 +194,7 @@ for epoch in range(EPOCHS):
     print('LOSS train {} valid {}'.format(avg_loss, avg_vloss))
 
     # Log the running loss averaged per batch
+    run.log({"val_loss": avg_vloss, "epoch": epoch_number + 1})
     # for both training and validation
     writer.add_scalars('Training vs. Validation Loss',
                        {'Training': avg_loss, 'Validation': avg_vloss},
@@ -189,3 +208,4 @@ for epoch in range(EPOCHS):
         torch.save(model.state_dict(), model_path)
 
     epoch_number += 1
+run.finish()

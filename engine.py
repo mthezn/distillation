@@ -6,6 +6,9 @@ import sys
 from typing import Iterable, Optional
 from tqdm import tqdm
 import torch
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
 from torch.cuda.amp import GradScaler, autocast
 
 
@@ -74,24 +77,35 @@ def set_bn_state(model):
 #     print("Averaged stats:", metric_logger)
 #     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
 
-def train_one_epoch(model,teacher,epoch,criterion,dataloader,optimizer,device):
+def train_one_epoch(model,teacher,epoch,criterion,dataloader,optimizer,device,run):
     model.train()
     scaler = torch.amp.GradScaler()
     bar = tqdm(enumerate(dataloader),total=len(dataloader),desc =f"Epoch {epoch}")
     running_loss = 0.0
     dataset_size = 0
+    epoch_loss = 0.0
     for i,(images,labels) in bar: #i->batch index, images->batch of images, labels->batch of labels
         optimizer.zero_grad()
         with torch.amp.autocast(device_type = "cuda"):
 
             images = images.to(device)
-            optimizer.zero_grad()
-            #print(images.shape)
-            outTeach = teacher(images)
-            outStud = model(images)
-            torch.cuda.empty_cache()
+            if torch.isnan(images).any():
+                print("NaN detected in images!")
 
-            loss = criterion(outStud,outTeach)
+
+
+        with torch.no_grad():
+
+            outTeach = teacher(images)
+        outStud = model(images) #in teoria posso passare n batch di immagini
+        torch.cuda.empty_cache()
+
+        if torch.isnan(outTeach).any():
+            print("NaN detected in predictions stud!")
+        if torch.isnan(outStud).any():
+            print("NaN detected in predictions teach!")
+
+        loss = criterion(outTeach,outStud)
         scaler.scale(loss).backward()
         #loss.backward()
         #optimizer.step()
@@ -102,9 +116,106 @@ def train_one_epoch(model,teacher,epoch,criterion,dataloader,optimizer,device):
         running_loss += loss.item() * batch_size
         dataset_size += batch_size
         epoch_loss = running_loss / dataset_size
+        #epoch_loss += loss.item()
         bar.set_postfix(Epoch = epoch,Train_loss = epoch_loss,LR = optimizer.param_groups[0]['lr'])
+        run.log({"train_loss": epoch_loss, "epoch": epoch + 1, "batch": i + 1})
     return epoch_loss
 
+def train_one_epoch_coupled(modelS,predictorS,predictorT,epoch,criterion,dataloader,optimizer,device):
+    modelS.train()
+    scaler = torch.amp.GradScaler()
+    bar = tqdm(enumerate(dataloader),total=len(dataloader),desc =f"Epoch {epoch}")
+    running_loss = 0.0
+    dataset_size = 0
+
+    for images,labels in dataloader: #i->batch index, images->batch of images, labels->batch of labels
+        optimizer.zero_grad()
+        with torch.amp.autocast(device_type = "cuda"):
+
+            images = images.to(device)
+            print(images.shape) #secondo me da rivedere i formati, forse np.array, swap dei canali prima di fare predictor .setimage
+            labels = labels.to(device)
+            print(labels.shape)
+            results_teach = []
+            results_stud = []
+            for image,label in zip(images,labels):
+                # Convert the mask to a binary mask
+                label = label.squeeze(0).cpu().numpy()
+                # print("label",label)
+                print(label.shape)
+                # Convert to binary mask
+                label = (label > 0).astype(np.uint8)
+                # Convert to binary mask
+                contours, _ = cv2.findContours(label, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                contours = sorted(contours, key=cv2.contourArea, reverse=True)[:2]
+                # print("contours",contours)
+
+                centroids = []
+                input_label = []
+                bbox = []
+                if contours:
+                    for countour in contours:
+                        M = cv2.moments(countour)
+                        if M["m00"] != 0:
+                            centroid_x = int(M["m10"] / M["m00"])
+                            centroid_y = int(M["m01"] / M["m00"])
+                            centroids.append([centroid_x, centroid_y])
+                            input_label.append(1)
+                            x, y, w, h = cv2.boundingRect(countour)
+                            bbox.append([x, y, x + w, y + h])
+                centroids = np.array(centroids)
+                print(centroids)
+
+                bbox = torch.tensor(bbox).float()
+                transformed_boxes = predictorT.transform.apply_boxes_torch(bbox, images[0].shape[:2])
+                plt.figure(figsize=(10, 10))
+                plt.imshow(images[0].permute(1, 2, 0).cpu().numpy())
+
+
+                predictorT.set_image(image)
+                masks, _, low_res_teach = predictorT.predict_torch(
+                    # predict_torch serve quando ho le bboxes altrimenti predictor.predict
+                    point_coords=None,
+                    point_labels=None,
+                    boxes=transformed_boxes,
+                    multimask_output=False,
+                )
+                results_teach.append(low_res_teach)
+                print(low_res_teach.shape)
+                print(low_res_teach)
+
+                predictorS.set_image(image)
+
+                masks, _, low_res_stud = predictorS.predict_torch(
+                    # predict_torch serve quando ho le bboxes altrimenti predictor.predict
+                    point_coords=None,
+                    point_labels=None,
+                    boxes=transformed_boxes,
+                    multimask_output=False,
+                )
+                results_stud.append(low_res_stud)
+
+                results_teach = torch.stack(results_teach).to(device)
+                results_stud = torch.stack(results_stud).to(device)#problem, ho outptud con numero di maschere diverso per ogni tipo di immagine, come allineare le dimensioni?
+                #separo ogni maschera in modo che siano tutte 1,1,256,256?
+
+                loss = criterion(results_stud,results_teach)
+
+
+
+        # Backpropagation
+        scaler.scale(loss).backward()
+        scaler.step(optimizer)
+        scaler.update()
+
+        # Update progress
+        batch_size = images.shape[0]
+        running_loss += loss.item() * batch_size
+        dataset_size += batch_size
+        epoch_loss = running_loss / dataset_size
+        bar.set_postfix(Epoch=epoch, Train_loss=epoch_loss, LR=optimizer.param_groups[0]['lr'])
+
+    return epoch_loss
 
 
 
@@ -131,15 +242,51 @@ def evaluate(data_loader, model,teacher, device):
             outputTeacher = teacher(images)
             loss = criterion(output, outputTeacher)
 
-        #acc1, acc5 = accuracy(output, target, topk=(1, 5))
+        acc1, acc5 = accuracy(output, target, topk=(1, 5))
 
         batch_size = images.shape[0]
         metric_logger.update(loss=loss.item())
-    #     metric_logger.meters['acc1'].update(acc1.item(), n=batch_size)
-    #     metric_logger.meters['acc5'].update(acc5.item(), n=batch_size)
+        metric_logger.meters['acc1'].update(acc1.item(), n=batch_size)
+        metric_logger.meters['acc5'].update(acc5.item(), n=batch_size)
     # # gather the stats from all processes
     # metric_logger.synchronize_between_processes()
-    # print('* Acc@1 {top1.global_avg:.3f} Acc@5 {top5.global_avg:.3f} loss {losses.global_avg:.3f}'
-    #       .format(top1=metric_logger.acc1, top5=metric_logger.acc5, losses=metric_logger.loss))
+    print('* Acc@1 {top1.global_avg:.3f} Acc@5 {top5.global_avg:.3f} loss {losses.global_avg:.3f}'
+         .format(top1=metric_logger.acc1, top5=metric_logger.acc5, losses=metric_logger.loss))
 
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
+
+def validate_one_epoch(
+    model,              # student
+    teacher,            # teacher (SAM encoder)
+    dataloader,         # validation DataLoader
+    criterion,          # es. MSELoss o CosineSimilarity
+    device,             # "cuda"
+    epoch,               # epoch corrente (per logging)
+    run
+):
+    model.eval()
+    teacher.eval()
+
+    running_loss = 0.0
+    dataset_size = 0
+
+    bar = tqdm(dataloader, desc=f"[Val] Epoch {epoch}", leave=False)
+
+    with torch.no_grad():
+        for i, (images, _) in enumerate(bar):
+            images = images.to(device)
+
+            with torch.autocast(device_type="cuda"):
+                teacher_out = teacher(images)
+                student_out = model(images)
+                loss = criterion(student_out, teacher_out)
+
+            batch_size = images.size(0)
+            running_loss += loss.item() * batch_size
+            dataset_size += batch_size
+            epoch_loss = running_loss / dataset_size
+
+            bar.set_postfix(Val_Loss=f"{epoch_loss:.4f}")
+            run.log({"val_loss": epoch_loss, "epoch": epoch + 1, "batch": i + 1})
+
+    return epoch_loss

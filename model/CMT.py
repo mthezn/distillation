@@ -11,7 +11,7 @@ class CMT(nn.Module):
         patch_channel=[46, 92, 184, 368],
         block_layer=[2, 2, 10, 2],
         R=3.6,
-        img_size=224,
+        img_size=1024,
         output_dim=256  # Cambiamo output_dim a 256 per SAM
     ):
         super(CMT, self).__init__()
@@ -21,6 +21,7 @@ class CMT(nn.Module):
 
         # Stem layer
         self.stem = CMTStem(in_channels, stem_channel)
+        self.img_size = img_size
 
         # Patch Aggregation Layer
         self.patch1 = Patch_Aggregate(stem_channel, patch_channel[0])
@@ -74,7 +75,7 @@ class CMT(nn.Module):
 
 
 @register_model
-def CMT_Ti(pretrained=False, img_size=224, output_dim=256, **kwargs):
+def CMT_Ti(pretrained=False, img_size=1024, output_dim=256, **kwargs):
     model = CMT(
         in_channels=3,
         stem_channel=16,

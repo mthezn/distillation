@@ -97,7 +97,7 @@ def show_box(box, ax):
 # plt.show()
 # start_time = time.time()
 sam = sam_model_registry["vit_h"](
-    checkpoint="/home/mdezen/distillation/checkpoints/sam_vit_h_4b8939.pth")
+    checkpoint="checkpoints/sam_vit_h_4b8939.pth")
 predictor = SamPredictor(sam)
 device = "cuda" if torch.cuda.is_available() else "cpu"
 sam.to(device=device)
@@ -138,8 +138,10 @@ for i in idx:
     show_bbox(bbox, plt.gca())
     plt.axis('off')
     plt.show()
-    print(transformed_boxes)
+
     start_time = time.time()
+    print("shape immagine ")
+    print(image_array.shape )
     predictor.set_image(image_array)
 
     masks, _, _ = predictor.predict_torch(  # predict_torch serve quando ho le bboxes altrimenti predictor.predict

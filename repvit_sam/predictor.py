@@ -51,7 +51,7 @@ class SamPredictor(torch.nn.Module):
         ], f"image_format must be in ['RGB', 'BGR'], is {image_format}."
         if image_format != self.model.image_format:
             image = image[..., ::-1]
-
+        print(image.shape)
         # Transform the image to the form expected by the model
         input_image = self.transform.apply_image(image)
         input_image_torch = torch.as_tensor(input_image, device=self.device)
