@@ -103,16 +103,13 @@ def show_box(box, ax):
 
 
 
-student_checkpoint = "checkpoints/student_checkpoint1604.pth"
 
-
-device = "cuda" if torch.cuda.is_available() else "cpu"
-
+student_checkpoint = "checkpoints/student_checkpoint1704.pth"
 state_dict = torch.load(student_checkpoint, map_location=torch.device('cpu'))
-
-# Pass the state_dict to the model
 model = sam_model_registry["CMT"](checkpoint=None)
 model.load_state_dict(state_dict)
+
+#CARICO UN MODELLO SAM
 sam_checkpoint = "C:/Users/User/OneDrive - Politecnico di Milano/Documenti/POLIMI/Tesi/EdgeSAM/RepViT/sam/weights/repvit_sam.pt"
 model_type = "repvit"
 
@@ -120,6 +117,7 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 
 sam = sam_model_registry[model_type](checkpoint=sam_checkpoint)
 sam.to(device=device)
+#ASSEGNO L'IMAGE ENCODER DISTILLATO A SAM
 sam.image_encoder = model.image_encoder
 sam.eval()
 
@@ -224,9 +222,9 @@ for images, labels in dataloaderTest:  # i->batch index, images->batch of images
             for mask in masks:
                 show_mask(mask.cpu().numpy(), plt.gca(), random_color=True)
 
-                values, counts = np.unique(mask.cpu().numpy(), return_counts=True)
-                print("unique", values)
-                print("counts", counts)
+                #values, counts = np.unique(mask.cpu().numpy(), return_counts=True)
+                #print("unique", values)
+                #print("counts", counts)
 
                 maskunion = np.logical_or(maskunion, mask.cpu().numpy())
             for box in bbox:

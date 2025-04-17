@@ -123,6 +123,8 @@ def train_one_epoch(model,teacher,epoch,criterion,dataloader,optimizer,device,ru
 
 def train_one_epoch_coupled(modelS,predictorS,predictorT,epoch,criterion,dataloader,optimizer,device):
     modelS.train()
+    predictorT.eval()
+    predictorS.eval()
     scaler = torch.amp.GradScaler()
     bar = tqdm(enumerate(dataloader),total=len(dataloader),desc =f"Epoch {epoch}")
     running_loss = 0.0
