@@ -104,7 +104,7 @@ def show_box(box, ax):
 
 
 
-student_checkpoint = "checkpoints/student_checkpoint1704.pth"
+student_checkpoint = "checkpoints/student_checkpointCoupled.pth"
 state_dict = torch.load(student_checkpoint, map_location=torch.device('cpu'))
 model = sam_model_registry["CMT"](checkpoint=None)
 model.load_state_dict(state_dict)
@@ -120,8 +120,8 @@ sam.to(device=device)
 #ASSEGNO L'IMAGE ENCODER DISTILLATO A SAM
 sam.image_encoder = model.image_encoder
 sam.eval()
-
-predictor = SamPredictor(sam)
+model.eval()
+predictor = SamPredictor(model)
 """
 checkpoint = torch.load("C:/Users/User/OneDrive - Politecnico di Milano/Documenti/POLIMI/Tesi/distillation/checkpoints/student_checkpoint.pth", map_location="cpu")
  

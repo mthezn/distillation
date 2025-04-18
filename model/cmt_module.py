@@ -77,7 +77,7 @@ class LMHSA(nn.Module):
         self.scaled_factor = self.d_k ** -0.5
         self.num_patches = (self.d_k // self.stride) ** 2
         self.B = nn.Parameter(torch.Tensor(1, self.heads, input_size ** 2, (input_size // stride) ** 2), requires_grad = True)
-
+        nn.init.zeros_(self.B)
 
     def forward(self, x):
         b, c, h, w = x.shape
