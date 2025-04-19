@@ -65,8 +65,8 @@ def show_bbox(bbox, ax):
 
 
 
-sam = sam_model_registry["repvit"](
-    checkpoint="checkpoints/repvit_sam.pt")
+sam = sam_model_registry["vit_b"](
+    checkpoint="checkpoints/sam_vit_b_01ec64.pth")
 predictor = SamPredictor(sam)
 device = "cuda" if torch.cuda.is_available() else "cpu"
 sam.to(device=device)
@@ -91,8 +91,8 @@ optimizer_cfg = {
 }
 optimizer = create_optimizer_v2(model,**optimizer_cfg)
 loss_scaler = NativeScaler()
-name = "student_coupled " + generate_random_name(5)
-
+name = "student_coupledVitB" + generate_random_name(5)
+print(name)
 run = wandb.init(
     # Set the wandb entity where your project will be logged (generally your team name).
 
@@ -103,7 +103,7 @@ run = wandb.init(
     config={
 
         "learning_rate": lr,
-        "architecture": "CMT/EdgeSAm",
+        "architecture": "CMT/VitB",
         "dataset": "MICCAI",
         "epochs": epochs,
         "criterion": "MSE",

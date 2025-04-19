@@ -1,0 +1,15 @@
+{"time":"2025-04-18T12:33:56.8933697+02:00","level":"INFO","msg":"stream: starting","core version":"0.19.9","symlink path":"C:\\Users\\User\\OneDrive - Politecnico di Milano\\Documenti\\POLIMI\\Tesi\\distillation\\wandb\\run-20250418_123356-87lr6jkv\\logs\\debug-core.log"}
+{"time":"2025-04-18T12:33:58.8883654+02:00","level":"INFO","msg":"created new stream","id":"87lr6jkv"}
+{"time":"2025-04-18T12:33:58.888922+02:00","level":"INFO","msg":"stream: started","id":"87lr6jkv"}
+{"time":"2025-04-18T12:33:58.888922+02:00","level":"INFO","msg":"handler: started","stream_id":"87lr6jkv"}
+{"time":"2025-04-18T12:33:58.888922+02:00","level":"INFO","msg":"writer: Do: started","stream_id":"87lr6jkv"}
+{"time":"2025-04-18T12:33:58.888922+02:00","level":"INFO","msg":"sender: started","stream_id":"87lr6jkv"}
+{"time":"2025-04-18T12:34:00.1352728+02:00","level":"INFO","msg":"stream: closing","id":"87lr6jkv"}
+{"time":"2025-04-18T12:34:00.1357929+02:00","level":"ERROR","msg":"sender: upsertConfig: RunRecord is nil"}
+{"time":"2025-04-18T12:34:00.3276876+02:00","level":"ERROR","msg":"HTTP error","status":404,"method":"POST","url":"https://api.wandb.ai/graphql"}
+{"time":"2025-04-18T12:34:00.3276876+02:00","level":"ERROR","msg":"runfiles: CreateRunFiles returned error: returned error 404: {\"data\":{\"createRunFiles\":null},\"errors\":[{\"message\":\"project /coupledDistillation not found during createRunFiles\",\"path\":[\"createRunFiles\"]}]}"}
+{"time":"2025-04-18T12:34:00.3313585+02:00","level":"INFO","msg":"fileTransfer: Close: file transfer manager closed"}
+{"time":"2025-04-18T12:34:00.3319295+02:00","level":"INFO","msg":"handler: closed","stream_id":"87lr6jkv"}
+{"time":"2025-04-18T12:34:00.3319295+02:00","level":"INFO","msg":"writer: Close: closed","stream_id":"87lr6jkv"}
+{"time":"2025-04-18T12:34:00.3319295+02:00","level":"INFO","msg":"sender: closed","stream_id":"87lr6jkv"}
+{"time":"2025-04-18T12:34:00.3325124+02:00","level":"INFO","msg":"stream: closed","id":"87lr6jkv"}

@@ -21,7 +21,7 @@ mask_dirs_val = ["MICCAI/instrument_2017_test/instrument_2017_test/instrument_da
 image_transform = transforms.Compose([
     transforms.Resize((1024,1024)),
     transforms.ToTensor(),
-    #transforms.Normalize(mean=[0.5,0.5,0.5],std = [0.5,0.5,0.5])
+    transforms.Normalize(mean=[0.5,0.5,0.5],std = [0.5,0.5,0.5])
 
 
 
@@ -104,24 +104,25 @@ def show_box(box, ax):
 
 
 
-student_checkpoint = "checkpoints/student_checkpointCoupled.pth"
+student_checkpoint = "checkpoints/student_coupledVitBTyHVg.pth"
 state_dict = torch.load(student_checkpoint, map_location=torch.device('cpu'))
 model = sam_model_registry["CMT"](checkpoint=None)
 model.load_state_dict(state_dict)
-
+print("Missing keys:", model.load_state_dict(state_dict, strict=False))
 #CARICO UN MODELLO SAM
 sam_checkpoint = "C:/Users/User/OneDrive - Politecnico di Milano/Documenti/POLIMI/Tesi/EdgeSAM/RepViT/sam/weights/repvit_sam.pt"
 model_type = "repvit"
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-sam = sam_model_registry[model_type](checkpoint=sam_checkpoint)
-sam.to(device=device)
+#sam = sam_model_registry[model_type](checkpoint=sam_checkpoint)
+#sam.to(device=device)
 #ASSEGNO L'IMAGE ENCODER DISTILLATO A SAM
-sam.image_encoder = model.image_encoder
-sam.eval()
+#sam.image_encoder = model.image_encoder
+#sam.eval()
 model.eval()
 predictor = SamPredictor(model)
+print("State dict keys:", state_dict.keys())
 """
 checkpoint = torch.load("C:/Users/User/OneDrive - Politecnico di Milano/Documenti/POLIMI/Tesi/distillation/checkpoints/student_checkpoint.pth", map_location="cpu")
  
@@ -201,12 +202,16 @@ for images, labels in dataloaderTest:  # i->batch index, images->batch of images
             transformed_boxes = predictor.transform.apply_boxes_torch(bbox, (1024,1024))
 
             image = np.transpose(image,(1,2,0))
+            image = (image * 0.5 + 0.5) * 255
+            image = image.astype(np.uint8)
             print(image.shape)
+            print("Image shape:", image.shape)
+            print("Image min/max values:", image.min(), image.max())
             #plt.imshow(image.permute(1, 2, 0))
             start_time = time.time()
 
             predictor.set_image(image)
-            masks, _, low_res_teach = predictor.predict_torch(
+            masks, _, low_res= predictor.predict_torch(
                 # predict_torch serve quando ho le bboxes altrimenti predictor.predict
                 point_coords=None,
                 point_labels=None,
@@ -214,7 +219,7 @@ for images, labels in dataloaderTest:  # i->batch index, images->batch of images
                 multimask_output=False,
             )
 
-
+            unique,vaues = np.unique(low_res, return_counts=True)
             end_time = time.time()
             plt.figure(figsize=(10, 10))
             plt.imshow(image)
@@ -222,9 +227,9 @@ for images, labels in dataloaderTest:  # i->batch index, images->batch of images
             for mask in masks:
                 show_mask(mask.cpu().numpy(), plt.gca(), random_color=True)
 
-                #values, counts = np.unique(mask.cpu().numpy(), return_counts=True)
-                #print("unique", values)
-                #print("counts", counts)
+                values, counts = np.unique(mask.cpu().numpy(), return_counts=True)
+                print("unique", values)
+                print("counts", counts)
 
                 maskunion = np.logical_or(maskunion, mask.cpu().numpy())
             for box in bbox:

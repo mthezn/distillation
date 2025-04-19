@@ -1,0 +1,34 @@
+2025-04-18 12:33:56,871 INFO    MainThread:6556 [wandb_setup.py:_flush():67] Current SDK version is 0.19.9
+2025-04-18 12:33:56,871 INFO    MainThread:6556 [wandb_setup.py:_flush():67] Configure stats pid to 6556
+2025-04-18 12:33:56,871 INFO    MainThread:6556 [wandb_setup.py:_flush():67] Loading settings from C:\Users\User\.config\wandb\settings
+2025-04-18 12:33:56,871 INFO    MainThread:6556 [wandb_setup.py:_flush():67] Loading settings from C:\Users\User\OneDrive - Politecnico di Milano\Documenti\POLIMI\Tesi\distillation\wandb\settings
+2025-04-18 12:33:56,872 INFO    MainThread:6556 [wandb_setup.py:_flush():67] Loading settings from environment variables
+2025-04-18 12:33:56,872 INFO    MainThread:6556 [wandb_init.py:setup_run_log_directory():662] Logging user logs to C:\Users\User\OneDrive - Politecnico di Milano\Documenti\POLIMI\Tesi\distillation\wandb\run-20250418_123356-87lr6jkv\logs\debug.log
+2025-04-18 12:33:56,872 INFO    MainThread:6556 [wandb_init.py:setup_run_log_directory():663] Logging internal logs to C:\Users\User\OneDrive - Politecnico di Milano\Documenti\POLIMI\Tesi\distillation\wandb\run-20250418_123356-87lr6jkv\logs\debug-internal.log
+2025-04-18 12:33:56,872 INFO    MainThread:6556 [wandb_init.py:init():781] calling init triggers
+2025-04-18 12:33:56,873 INFO    MainThread:6556 [wandb_init.py:init():786] wandb.init called with sweep_config: {}
+config: {'learning_rate': 3.90625e-06, 'architecture': 'CMT/EdgeSAm', 'dataset': 'MICCAI', 'epochs': 20, 'criterion': 'MSE', 'patience': 5, 'batch_size': 2, 'optimizer': 'adamw', 'weight_decay': 0.01, '_wandb': {}}
+2025-04-18 12:33:56,873 INFO    MainThread:6556 [wandb_init.py:init():809] starting backend
+2025-04-18 12:33:56,873 INFO    MainThread:6556 [wandb_init.py:init():813] sending inform_init request
+2025-04-18 12:33:56,885 INFO    MainThread:6556 [backend.py:_multiprocessing_setup():101] multiprocessing start_methods=spawn, using: spawn
+2025-04-18 12:33:56,885 INFO    MainThread:6556 [wandb_init.py:init():823] backend started and connected
+2025-04-18 12:33:56,889 INFO    MainThread:6556 [wandb_init.py:init():915] updated telemetry
+2025-04-18 12:33:56,986 INFO    MainThread:6556 [wandb_init.py:init():939] communicating run to backend with 90.0 second timeout
+2025-04-18 12:33:59,123 WARNING MainThread:6556 [wandb_init.py:init():1534] [no run ID] interrupted
+Traceback (most recent call last):
+  File "C:\Users\User\OneDrive - Politecnico di Milano\Documenti\POLIMI\Tesi\distillation\.venv\lib\site-packages\wandb\sdk\wandb_init.py", line 1530, in init
+    return wi.init(run_settings, run_config)
+  File "C:\Users\User\OneDrive - Politecnico di Milano\Documenti\POLIMI\Tesi\distillation\.venv\lib\site-packages\wandb\sdk\wandb_init.py", line 965, in init
+    result = wait_with_progress(
+  File "C:\Users\User\OneDrive - Politecnico di Milano\Documenti\POLIMI\Tesi\distillation\.venv\lib\site-packages\wandb\sdk\mailbox\wait_with_progress.py", line 24, in wait_with_progress
+    return wait_all_with_progress(
+  File "C:\Users\User\OneDrive - Politecnico di Milano\Documenti\POLIMI\Tesi\distillation\.venv\lib\site-packages\wandb\sdk\mailbox\wait_with_progress.py", line 87, in wait_all_with_progress
+    return asyncio_compat.run(progress_loop_with_timeout)
+  File "C:\Users\User\OneDrive - Politecnico di Milano\Documenti\POLIMI\Tesi\distillation\.venv\lib\site-packages\wandb\sdk\lib\asyncio_compat.py", line 30, in run
+    return future.result()
+  File "C:\Users\User\AppData\Local\Programs\Python\Python39\lib\concurrent\futures\_base.py", line 435, in result
+    self._condition.wait(timeout)
+  File "C:\Users\User\AppData\Local\Programs\Python\Python39\lib\threading.py", line 312, in wait
+    waiter.acquire()
+KeyboardInterrupt
+2025-04-18 12:34:00,134 INFO    MsgRouterThr:6556 [mailbox.py:close():129] [no run ID] Closing mailbox, abandoning 0 handles.

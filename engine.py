@@ -248,6 +248,10 @@ def train_one_epoch_coupled(modelS,predictorS,predictorT,epoch,criterion,dataloa
             results_stud = torch.stack(results_stud).to(device)#problem, ho outptud con numero di maschere diverso per ogni tipo di immagine, come allineare le dimensioni?
                 #separo ogni maschera in modo che siano tutte 1,1,256,256?
                 #print(low_res_stud.shape)
+            if torch.isnan(results_teach).any():
+                print("NaN detected in predictions stud!")
+            if torch.isnan(results_stud).any():
+                print("NaN detected in predictions teach!")
             loss = criterion(results_stud,results_teach)
 
 
