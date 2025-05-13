@@ -4,6 +4,8 @@ Train and eval functions used in main.py
 import math
 import sys
 from typing import Iterable, Optional
+
+from PIL.ImageChops import logical_or
 from tqdm import tqdm
 import torch
 import cv2
@@ -144,15 +146,19 @@ def train_one_epoch_coupled(modelS,predictorS,predictorT,epoch,criterion,dataloa
     dataset_size = 0
 
     for i,(images,labels) in bar: #i->batch index, images->batch of images, labels->batch of labels
-        optimizer.zero_grad()
-        with torch.amp.autocast(device_type = "cuda"):
+            optimizer.zero_grad()
+        #with torch.amp.autocast(device_type = "cuda"):
 
             images = images.to(device)
             #print(images.shape) #secondo me da rivedere i formati, forse np.array, swap dei canali prima di fare predictor .setimage
             labels = labels.to(device)
             #print(labels.shape)
             results_teach = []
+            logits_teach = []
             results_stud = []
+            mask = torch.zeros((1,1,1024,1024)).to(device)
+            result_mask = []
+            gt = []
             for image,label in zip(images,labels):
                 # Convert the mask to a binary mask
                 label = label.detach().cpu().numpy()
@@ -198,10 +204,22 @@ def train_one_epoch_coupled(modelS,predictorS,predictorT,epoch,criterion,dataloa
                     boxes=transformed_boxes,
                     multimask_output=False,
                 )
-                for i in range(low_res_teach.shape[0]):
+                low_res_teach = modelS.postprocess_masks(low_res_teach, (1024, 1024), (1024, 1024))
 
-                    results_teach.append(low_res_teach[i])
-                    if torch.isnan(low_res_teach[i]).any():
+
+                maskunion_teach = torch.zeros((1,1,1024,1024)).to(device)
+                for i in range(low_res_teach.shape[0]):
+                    mask = masks[i].float() #ricordarsi .foat con Bcelogits
+                    logits_teach.append(low_res_teach[i])
+                    maskunion_teach = torch.max(maskunion_teach, mask)
+
+                    #print("Min:", masks[i].min().item(), "Max:", masks[i].max().item())
+                    #print("Unique:", torch.unique(masks[i]))
+
+                    #print(mask)
+
+                    results_teach.append(mask)
+                    if torch.isnan(masks[i]).any():
                         print("NaN detected in predictions teach!")
 
                 #print(low_res_teach.shape)
@@ -236,22 +254,37 @@ def train_one_epoch_coupled(modelS,predictorS,predictorT,epoch,criterion,dataloa
                     dense_prompt_embeddings=dense_embeddings,
                     multimask_output=False
                 )
+                masks = modelS.postprocess_masks(low_res_stud, (1024,1024),(1024,1024))
 
+                #masks = masks > modelS.mask_threshold
+                #masks = masks.float()
 
+                maskunion_stud = torch.zeros((1,1,1024,1024)).to(device)
                 for i in range(low_res_stud.shape[0]):
+                    mask = masks[i].float()
+                    maskunion_stud = torch.max(maskunion_stud, mask.float())
 
-                    results_stud.append(low_res_stud[i])
+
+                    results_stud.append(mask)
+                    #print("Min:", mask.min(), "Max:", mask.max())
+                    #mask = torch.logical_or(mask,masks[i])
+                    #result_mask = result_mask.append(mask)
                     #print(low_res_stud[i])
+                #gt = gt.append(label)
 
 
             results_teach = torch.stack(results_teach).to(device)
-            results_stud = torch.stack(results_stud).to(device)#problem, ho outptud con numero di maschere diverso per ogni tipo di immagine, come allineare le dimensioni?
+            logits_teach = torch.stack(logits_teach).to(device)
+            results_stud = torch.stack(results_stud).to(device)
+            #problem, ho outptud con numero di maschere diverso per ogni tipo di immagine, come allineare le dimensioni?
                 #separo ogni maschera in modo che siano tutte 1,1,256,256?
                 #print(low_res_stud.shape)
             if torch.isnan(results_teach).any():
                 print("NaN detected in predictions stud!")
             if torch.isnan(results_stud).any():
                 print("NaN detected in predictions teach!")
+            #loss = criterion(results_stud,logits_teach,results_teach)
+            #maskunion_stud.requires_grad = True
             loss = criterion(results_stud,results_teach)
 
 
@@ -369,6 +402,7 @@ def validate_one_epoch_coupled(
             images = images.to(device)
             labels = labels.to(device)
             results_teach = []
+
             results_stud = []
             for image,label in zip(images,labels):
                 # Convert the mask to a binary mask
@@ -416,8 +450,8 @@ def validate_one_epoch_coupled(
                     multimask_output=False,
                 )
                 for i in range(low_res_teach.shape[0]):
-
-                    results_teach.append(low_res_teach[i])
+                    mask = masks[i].float()
+                    results_teach.append(mask)
                     if torch.isnan(low_res_teach[i]).any():
                         print("NaN detected in predictions teach!")
 
@@ -444,8 +478,9 @@ def validate_one_epoch_coupled(
                     dense_prompt_embeddings=dense_embeddings,
                     multimask_output=False
                 )
-
+                low_res_stud = model.postprocess_masks(low_res_stud, (1024, 1024), (1024, 1024))
                 for i in range(low_res_stud.shape[0]):
+
                     results_stud.append(low_res_stud[i])
                     # print(low_res_stud[i])
 

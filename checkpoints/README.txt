@@ -1,0 +1,2 @@
+14_04 cartella con i primi tentativi di distillazione, mantenuti alcuni checkpoint validi e funionanti,spiegazione all'interno del ppt DIstillation Pipeline.pptx 
+05_5 Nuovi tentativi con aggiunta di augmentation 

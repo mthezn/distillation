@@ -4,15 +4,17 @@ from torchvision import transforms
 import os
 from PIL import Image
 import numpy as np
+import random
 
 
 class ImageMaskDataset(Dataset):
-    def __init__(self, image_dirs, mask_dirs, transform=None, mask_transform=None):
+    def __init__(self, image_dirs, mask_dirs, transform=None, mask_transform=None,increase = False):
         self.image_dirs = image_dirs
         self.mask_dirs = mask_dirs
         self.transform = transform
         self.mask_transform = mask_transform
         self.image_paths = {}
+        self.increase = increase
 
         # Mappa immagini
         for img_dir in image_dirs:
@@ -31,6 +33,9 @@ class ImageMaskDataset(Dataset):
 
         # Filtra solo i file comuni tra immagini e maschere
         self.image_filenames = sorted(list(set(self.image_paths.keys()) & set(self.mask_paths.keys())))
+        if self.increase:
+            self.image_filenames = self.image_filenames * 3
+
 
     def __len__(self):
         return len(self.image_filenames)
@@ -54,9 +59,14 @@ class ImageMaskDataset(Dataset):
 
         # Applica trasformazioni
         if self.transform:
+            seed = random.randint(0, 9999)
+            random.seed(seed)
             image = self.transform(image)
-        if self.mask_transform:
-            combined_mask = self.mask_transform(combined_mask)
+            random.seed(seed)
+            combined_mask = self.mask_transform(combined_mask) if self.mask_transform else combined_mask
+        else:
+            image = transforms.ToTensor()(image)
+            combined_mask = transforms.ToTensor()(combined_mask)
 
         return image, combined_mask
 

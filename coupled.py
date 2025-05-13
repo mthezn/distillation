@@ -4,7 +4,7 @@ from torch.utils.data import DataLoader
 import wandb
 import random
 from losses import DistillationLoss
-
+from losses import distillation_loss,dice_loss,iou_loss
 from model import CMT_Ti
 from build_CMT_sam import sam_model_registry
 from repvit_sam import SamPredictor
@@ -13,6 +13,7 @@ from torch.cuda.amp import GradScaler, autocast
 from repvit_sam.build_sam import build_sam_repvit
 from utils import *
 from matplotlib import pyplot as plt
+import torch.nn.functional as F
 
 
 import numpy as np
@@ -80,8 +81,8 @@ predictorStud = SamPredictor(model)
 model.train()
 lr = 0.001
 batch_size = 2
-epochs = 20
-patience = 5
+epochs = 30
+patience = 10
 linear_scaled_lr = lr * batch_size * utils.get_world_size() / 512.0
 lr = linear_scaled_lr
 optimizer_cfg = {
@@ -104,13 +105,14 @@ run = wandb.init(
 
         "learning_rate": lr,
         "architecture": "CMT/VitB",
-        "dataset": "MICCAI",
+        "dataset": "MICCAI(1-8)*3",
         "epochs": epochs,
-        "criterion": "MSE",
+        "criterion": "distillationLoss",
         "patience": patience,
         "batch_size": batch_size,
         "optimizer": optimizer_cfg['opt'],
         "weight_decay": optimizer_cfg['weight_decay'],
+        "augmentation": "yes",
 
 
     }
@@ -124,29 +126,55 @@ mask_dirs_val = ["MICCAI/instrument_1_4_training/instrument_dataset_4/ground_tru
                  "MICCAI/instrument_1_4_training/instrument_dataset_4/ground_truth/Prograsp_Forceps_labels",]
 
 image_dirs_train = [
-    #"MICCAI/instrument_1_4_training/test",
-    "MICCAI/instrument_1_4_training/instrument_dataset_1/left_frames",
+    #"/home/mdezen/distillation/MICCAI/instrument_1_4_training/test",
+    "/home/mdezen/distillation/MICCAI/instrument_1_4_training/instrument_dataset_1/left_frames",
 
-    "MICCAI/instrument_1_4_training/instrument_dataset_2/left_frames",
-    "MICCAI/instrument_1_4_training/instrument_dataset_3/left_frames",
+    "/home/mdezen/distillation/MICCAI/instrument_1_4_training/instrument_dataset_2/left_frames",
+    "/home/mdezen/distillation/MICCAI/instrument_1_4_training/instrument_dataset_3/left_frames",
+    "/home/mdezen/distillation/MICCAI/instrument_5_8_training/instrument_dataset_5/left_frames",
+    "/home/mdezen/distillation/MICCAI/instrument_5_8_training/instrument_dataset_6/left_frames",
+    "/home/mdezen/distillation/MICCAI/instrument_5_8_training/instrument_dataset_7/left_frames",
+    "/home/mdezen/distillation/MICCAI/instrument_5_8_training/instrument_dataset_8/left_frames",
 
 ]
 mask_dirs_train = [
-    "MICCAI/instrument_1_4_training/instrument_dataset_1/ground_truth/Left_Prograsp_Forceps_labels",
-    "MICCAI/instrument_1_4_training/instrument_dataset_1/ground_truth/Maryland_Bipolar_Forceps_labels",
-"MICCAI/instrument_1_4_training/instrument_dataset_1/ground_truth/Right_Prograsp_Forceps_labels",
-    "MICCAI/instrument_1_4_training/instrument_dataset_2/ground_truth/Left_Prograsp_Forceps_labels",
-     "MICCAI/instrument_1_4_training/instrument_dataset_2/ground_truth/Right_Prograsp_Forceps_labels",
-    "MICCAI/instrument_1_4_training/instrument_dataset_3/ground_truth/Right_Large_Needle_Driver_labels",
-    "MICCAI/instrument_1_4_training/instrument_dataset_3/ground_truth/Left_Large_Needle_Driver_labels",
-    #"MICCAI/instrument_1_4_training/testGT"
+    "/home/mdezen/distillation/MICCAI/instrument_1_4_training/instrument_dataset_1/ground_truth/Left_Prograsp_Forceps_labels",
+    "/home/mdezen/distillation/MICCAI/instrument_1_4_training/instrument_dataset_1/ground_truth/Maryland_Bipolar_Forceps_labels",
+    "/home/mdezen/distillation/MICCAI/instrument_1_4_training/instrument_dataset_1/ground_truth/Right_Prograsp_Forceps_labels",
+    "/home/mdezen/distillation/MICCAI/instrument_1_4_training/instrument_dataset_2/ground_truth/Left_Prograsp_Forceps_labels",
+    "/home/mdezen/distillation/MICCAI/instrument_1_4_training/instrument_dataset_2/ground_truth/Right_Prograsp_Forceps_labels",
+    "/home/mdezen/distillation/MICCAI/instrument_1_4_training/instrument_dataset_3/ground_truth/Right_Large_Needle_Driver_labels",
+    "/home/mdezen/distillation/MICCAI/instrument_1_4_training/instrument_dataset_3/ground_truth/Left_Large_Needle_Driver_labels",
+    "/home/mdezen/distillation/MICCAI/instrument_5_8_training/instrument_dataset_5/ground_truth/Bipolar_Forceps_labels",
+    "/home/mdezen/distillation/MICCAI/instrument_5_8_training/instrument_dataset_5/ground_truth/Grasping_Retractor_labels",
+    "/home/mdezen/distillation/MICCAI/instrument_5_8_training/instrument_dataset_5/ground_truth/Vessel_Sealer_labels",
+    "/home/mdezen/distillation/MICCAI/instrument_5_8_training/instrument_dataset_6/ground_truth/Monopolar_Curved_Scissors_labels",
+    "/home/mdezen/distillation/MICCAI/instrument_5_8_training/instrument_dataset_6/ground_truth/Prograsp_Forceps",
+    "/home/mdezen/distillation/MICCAI/instrument_5_8_training/instrument_dataset_6/ground_truth/Right_Large_Needle_Driver_labels",
+    "/home/mdezen/distillation/MICCAI/instrument_5_8_training/instrument_dataset_7/ground_truth/Left_Bipolar_Forceps",
+    "/home/mdezen/distillation/MICCAI/instrument_5_8_training/instrument_dataset_7/ground_truth/Right_Vessel_Sealer",
+    "/home/mdezen/distillation/MICCAI/instrument_5_8_training/instrument_dataset_8/ground_truth/Bipolar_Forceps_labels",
+    "/home/mdezen/distillation/MICCAI/instrument_5_8_training/instrument_dataset_8/ground_truth/Left_Grasping_Retractor_labels",
+    "/home/mdezen/distillation/MICCAI/instrument_5_8_training/instrument_dataset_8/ground_truth/Monopolar_Curved_Scissors_labels",
+    "/home/mdezen/distillation/MICCAI/instrument_5_8_training/instrument_dataset_8/ground_truth/Right_Grasping_Retractor_labels",
+
+
+
+
+
+    #"/home/mdezen/distillation/MICCAI/instrument_1_4_training/testGT"
 
 
 ]
-criterion = nn.MSELoss()
+
+criterion = distillation_loss
+#criterion = DistillationLoss(criterion_base,'soft',0.5,0.5)
 
 image_transform = transforms.Compose([
     transforms.Resize((1024,1024)),
+    transforms.RandomHorizontalFlip(p=0.5),
+    transforms.RandomVerticalFlip(p=0.5),
+    transforms.RandomRotation(degrees=15),
     transforms.ToTensor(),
     transforms.Normalize(mean=[0.5,0.5,0.5],std = [0.5,0.5,0.5])
 
@@ -156,21 +184,24 @@ image_transform = transforms.Compose([
 mask_transform  = transforms.Compose([
 
     transforms.Resize((1024,1024)),
+    transforms.RandomHorizontalFlip(p=0.5),  # Ensure the same flip as the image
+    transforms.RandomVerticalFlip(p=0.5),  # Ensure the same flip as the image
+    transforms.RandomRotation(degrees=15),
     transforms.ToTensor()
 ])
 datasetVal = ImageMaskDataset(image_dirs=image_dirs_val,mask_dirs=mask_dirs_val,transform=image_transform,mask_transform=mask_transform)
-dataloaderVal = DataLoader(datasetVal,batch_size=2,shuffle=True)
+dataloaderVal = DataLoader(datasetVal,batch_size=batch_size,shuffle=True)
 
-dataset = ImageMaskDataset(image_dirs=image_dirs_train,mask_dirs=mask_dirs_train,transform=image_transform,mask_transform=mask_transform)
-dataloader = DataLoader(dataset,batch_size=2,shuffle=True,pin_memory=True)
+dataset = ImageMaskDataset(image_dirs=image_dirs_train,mask_dirs=mask_dirs_train,transform=image_transform,mask_transform=mask_transform,increase= True)
+dataloader = DataLoader(dataset,batch_size=batch_size,shuffle=True,pin_memory=True)
+
 for images, masks in dataloader:
     print(f"Batch di immagini: {images.shape}")  # (batch_size, 3, 224, 224)
     print(f"Batch di maschere: {masks.shape}")  # (batch_size, 1, 224, 224)
 
     break
 
-
-checkpoint_path = "checkpoints/" + name + ".pth"
+checkpoint_path = "checkpoints/05_05/" + name + ".pth"
 
 predictorTeach = SamPredictor(sam)
 best_val_loss = float('inf')
@@ -181,7 +212,7 @@ for epoch in range(epochs):
     torch.cuda.empty_cache()
     gc.collect()
     # print(epoch)
-    val_loss = validate_one_epoch_coupled(model, predictorTeach, dataloaderVal, criterion, device, epoch, run)
+    val_loss = validate_one_epoch_coupled(model, predictorTeach, dataloaderVal, nn.BCEWithLogitsLoss(), device, epoch, run)
     print(
         f"Epoch {epoch} loss: {val_loss}")
     if val_loss < best_val_loss:
@@ -198,6 +229,73 @@ for epoch in range(epochs):
         print("Early stopping triggered.")
         break
 
+
+#############################TESTING######################################
+state_dict = torch.load(checkpoint_path, map_location=device)
+
+# Inizializza il modello con la stessa architettura
+
+
+# Predictor
+predictor = SamPredictor(model)
+
+# ----- CARICAMENTO IMMAGINE -----
+image_path = "MICCAI/instrument_1_4_testing/instrument_dataset_1/left_frames/frame225.png"
+mask_path = "MICCAI/instrument_2017_test/instrument_2017_test/instrument_dataset_1/BinarySegmentation/frame225.png"
+
+image_transform = transforms.Compose([
+    transforms.Resize((1024, 1024)),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])
+])
+
+# Carica immagine e maschera GT
+img_pil = Image.open(image_path).convert("RGB")
+mask_gt = Image.open(mask_path).convert("L")
+
+img_tensor = image_transform(img_pil).to(device)
+img_np = np.array(img_tensor.cpu())
+image_for_sam = np.transpose(img_np, (1, 2, 0))
+
+# ----- CREA BBOX DALLA GT MASK -----
+mask_np = np.array(mask_gt.resize((1024, 1024)))
+binary_mask = (mask_np > 0).astype(np.uint8)
+contours, _ = cv2.findContours(binary_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+bbox = []
+for cnt in contours:
+    x, y, w, h = cv2.boundingRect(cnt)
+    bbox.append([x, y, x + w, y + h])
+
+bbox = torch.tensor(bbox, dtype=torch.float32).to(device)
+transformed_boxes = predictor.transform.apply_boxes_torch(bbox, (1024, 1024))
+
+# ----- PREDIZIONE -----
+predictor.set_image(image_for_sam)
+masks, _, _ = predictor.predict_torch(
+    point_coords=None,
+    point_labels=None,
+    boxes=transformed_boxes,
+    multimask_output=False,
+)
+
+# ----- VISUALIZZAZIONE -----
+plt.figure(figsize=(10, 10))
+plt.imshow(image_for_sam)
+for mask in masks:
+    mask = mask.squeeze().cpu().numpy()
+    plt.imshow(mask, alpha=0.5, cmap='Blues')
+for box in bbox.cpu().numpy():
+    x0, y0, x1, y1 = box
+    plt.gca().add_patch(plt.Rectangle((x0, y0), x1 - x0, y1 - y0,
+                                      edgecolor='green', facecolor='none', linewidth=2))
+plt.axis('off')
+plt.title("Predicted Masks + BBoxes")
+plt.show()
+
+unique,values = np.unique(masks[0].cpu().numpy(), return_counts=True)
+print("unique",unique)
+print("values",values)
 
 
 

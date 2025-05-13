@@ -1,0 +1,37 @@
+Calibration-Status: 0                                     // 0:success, >0:failure code
+Target-Type: 1 28 14                                      // target type code
+Target-Orientation: -858993460                            // 0:normal, 1:h-flipped, 2:v-flipped, 3:hv-flipped
+Dot-Spacing: 0.6524                                       // distance between adjacent dots in mm
+Feature-Detect-Algorithm-Version: 1.0                     // major.minor version
+Stereo-Cal-Algorithm-Version: 1.0                         // major.minor version
+Width: 1280                                               // width of the images in pixels
+Height: 1024                                              // height of the images in pixels
+Focus: 1                                                  // focus parameter
+Calibration-Time: 1460059803                              // epoch time (sec since 1970) of cal (Thu Apr 07 13:10:03 2016)
+Number-of-Planes: 5                                       // number of valid image pairs used
+Number-of-Points: 9804                                    // number of valid points used
+Camera-0-F: 1080.36 1080.18                               // left camera x,y focal dist in pixels
+Camera-0-F-Err: 0.04 0.00                                 // left camera x,y focal dist uncertainty in pixels
+Camera-0-C: 595.12 514.37                                 // left camera x,y center in pixels
+Camera-0-C-Err: 0.07 0.17                                 // left camera x,y center uncertainty in pixels
+Camera-0-Alpha: 0.00000                                   // left camera skew
+Camera-0-Alpha-Err: 0.00000                               // left camera skew uncertainty
+Camera-0-K: -0.00080 0.00281 0.00007 0.00000 0.00000      // left camera radial distortion
+Camera-0-K-Err: 0.00037 0.00073 0.00006 0.00000 0.00000   // left camera radial distortion uncertainty
+Camera-1-F: 1079.62 1079.41                               // right camera x,y focal dist in pixels
+Camera-1-F-Err: 0.04 0.00                                 // right camera x,y focal dist uncertainty in pixels
+Camera-1-C: 695.34 515.00                                 // right camera x,y center in pixels
+Camera-1-C-Err: 0.07 0.17                                 // right camera x,y center uncertainty in pixels
+Camera-1-Alpha: 0.00000                                   // right camera skew
+Camera-1-Alpha-Err: 0.00000                               // right camera skew uncertainty
+Camera-1-K: -0.00132 0.00398 0.00019 0.00000 0.00000      // right camera radial distortion
+Camera-1-K-Err: 0.00036 0.00069 0.00006 0.00000 0.00000   // right camera radial distortion uncertainty
+Extrinsic-Omega: 0.0002 -0.0011 -0.0000                   // left to right camera rotation
+Extrinsic-Omega-Err: 0.0002 0.0001 0.0000                 // left to right camera rotation uncertainty
+Extrinsic-T: -4.3650 -0.0169 -0.0388                      // left to right camera position
+Extrinsic-T-Err: 0.0013 0.0013 0.0025                     // left to right camera position uncertainty
+Reprojection-Err: 0.2695 0.2322                           // rms x,y reprojection error
+Target-Omega: -0.0002 0.0006 0.0000                       // camera to target rotation
+Target-Omega-Err: 0.0002 0.0001 0.0000                    // camera to target rotation uncertainty
+Target-T: -8.8190 -4.7744 2.3675                          // camera to target position
+Target-T-Err: 0.0010 0.0010 0.0021                        // camera to target position uncertainty

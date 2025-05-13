@@ -13,11 +13,12 @@ import torch
 from torch.utils.data import DataLoader
 from torchvision import transforms
 from build_CMT_sam import sam_model_registry
+import torch.nn.functional as F
 
 from PIL import Image
 
-image_dirs_val = ["MICCAI/instrument_1_4_testing/instrument_dataset_1/left_frames"]
-mask_dirs_val = ["MICCAI/instrument_2017_test/instrument_2017_test/instrument_dataset_1/BinarySegmentation"]
+image_dirs_val = ["MICCAI/instrument_1_4_testing/instrument_dataset_4/left_frames"]
+mask_dirs_val = ["MICCAI/instrument_2017_test/instrument_2017_test/instrument_dataset_4/BinarySegmentation"]
 image_transform = transforms.Compose([
     transforms.Resize((1024,1024)),
     transforms.ToTensor(),
@@ -104,25 +105,26 @@ def show_box(box, ax):
 
 
 
-student_checkpoint = "checkpoints/student_coupledVitBTyHVg.pth"
+student_checkpoint = "checkpoints/05_05/decoupledVitB6j0l7.pth"
 state_dict = torch.load(student_checkpoint, map_location=torch.device('cpu'))
 model = sam_model_registry["CMT"](checkpoint=None)
 model.load_state_dict(state_dict)
 print("Missing keys:", model.load_state_dict(state_dict, strict=False))
 #CARICO UN MODELLO SAM
-sam_checkpoint = "C:/Users/User/OneDrive - Politecnico di Milano/Documenti/POLIMI/Tesi/EdgeSAM/RepViT/sam/weights/repvit_sam.pt"
-model_type = "repvit"
+#sam_checkpoint = "C:/Users/User/OneDrive - Politecnico di Milano/Documenti/POLIMI/Tesi/distillation/checkpoints/sam_vit_b_01ec64.pth"
+sam_checkpoint = "checkpoints/sam_vit_b_01ec64.pth"
+model_type = "vit_b"
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-#sam = sam_model_registry[model_type](checkpoint=sam_checkpoint)
-#sam.to(device=device)
+sam = sam_model_registry[model_type](checkpoint=sam_checkpoint)
+sam.to(device=device)
 #ASSEGNO L'IMAGE ENCODER DISTILLATO A SAM
-#sam.image_encoder = model.image_encoder
-#sam.eval()
+sam.image_encoder = model.image_encoder
+sam.eval()
 model.eval()
-predictor = SamPredictor(model)
-print("State dict keys:", state_dict.keys())
+predictor = SamPredictor(sam)
+#print("State dict keys:", state_dict.keys())
 """
 checkpoint = torch.load("C:/Users/User/OneDrive - Politecnico di Milano/Documenti/POLIMI/Tesi/distillation/checkpoints/student_checkpoint.pth", map_location="cpu")
  
@@ -178,7 +180,7 @@ for images, labels in dataloaderTest:  # i->batch index, images->batch of images
             plt.imshow(label.squeeze(), cmap='gray')
             # Convert to binary mask
             contours, _ = cv2.findContours(label.squeeze(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            contours = sorted(contours, key=cv2.contourArea, reverse=True)[:2]
+            contours = sorted(contours, key=cv2.contourArea, reverse=True)[:3]
             # print("contours",contours)
 
             centroids = []
@@ -218,18 +220,24 @@ for images, labels in dataloaderTest:  # i->batch index, images->batch of images
                 boxes=transformed_boxes,
                 multimask_output=False,
             )
+            #vec = torch.sigmoid(low_res)
+            #vec = F.interpolate(vec, (1024,1024), mode="bilinear", align_corners=False)
 
-            unique,vaues = np.unique(low_res, return_counts=True)
+            unique,values = np.unique(low_res, return_counts=True)
+            print("unique",unique)
+            print("values",values)
             end_time = time.time()
             plt.figure(figsize=(10, 10))
             plt.imshow(image)
             maskunion = np.zeros_like(masks[0].cpu().numpy())
             for mask in masks:
-                show_mask(mask.cpu().numpy(), plt.gca(), random_color=True)
 
+
+                show_mask(mask.cpu().numpy(), plt.gca(), random_color=True)
                 values, counts = np.unique(mask.cpu().numpy(), return_counts=True)
                 print("unique", values)
                 print("counts", counts)
+
 
                 maskunion = np.logical_or(maskunion, mask.cpu().numpy())
             for box in bbox:
@@ -241,6 +249,6 @@ for images, labels in dataloaderTest:  # i->batch index, images->batch of images
             iou = calculate_iou(maskunion, label)
 
             timeDf.loc[len(timeDf)] = [latency, len(timeDf), iou]
-timeDf.to_csv('TimeDfBBoxStudent.csv', index=False)
+timeDf.to_csv('RISULTATI DECOUPLED/TimeDfBBoxStudent.csv', index=False)
 print(timeDf)
 
