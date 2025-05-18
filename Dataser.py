@@ -70,7 +70,43 @@ class ImageMaskDataset(Dataset):
 
         return image, combined_mask
 
+class CholecDataset(Dataset):
+    def __init__(self, hf_dataset, transform=None, mask_transform=None):
+        self.dataset = hf_dataset
+        self.transform = transform
+        self.mask_transform = mask_transform
 
+    def __len__(self):
+        return len(self.dataset)
 
+    def __getitem__(self, idx):
+        sample = self.dataset[idx]
 
+        image = sample["image"]
+        if isinstance(image, Image.Image):
+            image = image.convert("RGB")
+
+        mask = sample["color_mask"]
+        if isinstance(mask, Image.Image):
+            mask = np.array(mask)
+        elif not isinstance(mask, np.ndarray):
+            raise TypeError(f"Unexpected mask type: {type(mask)}")
+
+        # Binarizza strumenti
+        instrument_mask = ((mask == 169) | (mask == 170)).astype(np.uint8) * 255
+        mask_pil = Image.fromarray(instrument_mask)
+        mask_pil = mask_pil.convert("L")
+
+        # Trasformazioni
+        if self.transform:
+            seed = random.randint(0, 99999)
+            random.seed(seed)
+            image = self.transform(image)
+            random.seed(seed)
+            mask_pil = self.mask_transform(mask_pil) if self.mask_transform else mask_pil
+        else:
+            image = transforms.ToTensor()(image)
+            mask_pil = transforms.ToTensor()(mask_pil)
+
+        return image, mask_pil
 

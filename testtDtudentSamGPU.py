@@ -80,57 +80,7 @@ def show_bbox(bbox, ax):
         w, h = box[2] - box[0], box[3] - box[1]
         ax.add_patch(plt.Rectangle((x0, y0), w, h, edgecolor='green', facecolor=(0, 0, 0, 0), lw=2))
 
-def predict_boxes(predictor, boxes):
 
-
-    masks, _, low_res = predictor.predict_torch(
-        # predict_torch serve quando ho le bboxes altrimenti predictor.predict
-        point_coords=None,
-        point_labels=None,
-        boxes=boxes,
-        multimask_output=False,
-    )
-    return masks, _, low_res
-
-def predict_points_boxes(predictor,boxes,centroids,input_label):
-    all_masks = []
-    all_scores = []
-    all_low_res = []
-    print(transformed_boxes.shape)
-    print(input_label.shape)
-    print(centroids.shape)
-
-    # centroids: torch.Size([1, N, 2])
-    # input_label: torch.Size([1, N])
-    # boxes: torch.Size([num_boxes, 4]) — num_boxes > 1
-
-    #devo creare le maschere dando in nput una box e un punto per volta perche non è possible dare piu boxe
-    #e allo stesso tempo piu punti
-
-    for i in range(boxes.shape[0]):
-        box = boxes[i].unsqueeze(0)  # shape: [1, 4], batch size 1
-        print(box.shape)
-        centroid = centroids[:,i,:].unsqueeze(0) # shape: [1,1,2]
-        print(centroid.shape)
-        input = input_label[:,i].unsqueeze(0) # shape: [1, N]
-        print(input.shape)
-        masks, scores, low_res = predictor.predict_torch(
-            point_coords=centroid,
-            point_labels=input,
-            boxes=box,
-            multimask_output=False
-        )
-
-        all_masks.append(masks)  # masks: [1, C, H, W]
-        all_scores.append(scores)  # scores: [1, C]
-        all_low_res.append(low_res)  # low_res: [1, C, H, W]
-
-    # Concatenazione lungo la dimensione delle maschere (C)
-    final_masks = torch.cat(all_masks, dim=0)  # [1, total_C, H, W]
-    final_scores = torch.cat(all_scores, dim=0)  # [1, total_C]
-    final_low_res = torch.cat(all_low_res, dim=0)
-
-    return final_masks, final_scores, final_low_res
 def calculate_iou(mask_pred, mask_gt):
     # Ensure the inputs are NumPy arrays
     if isinstance(mask_pred, torch.Tensor):
@@ -154,26 +104,6 @@ def show_box(box, ax):
     w, h = box[2] - box[0], box[3] - box[1]
     ax.add_patch(plt.Rectangle((x0, y0), w, h, edgecolor='green', facecolor=(0, 0, 0, 0), lw=2))
 
-def refining(mask):
-    # 1. Rimuovi rumore (morphological opening)
-    #mask = mask.detach().cpu().numpy()
-    mask = (mask * 255).astype(np.uint8)
-    while mask.ndim > 2:
-        mask = mask[0]
-    kernel = np.ones((3, 3), np.uint8)
-    mask_clean = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-
-    # 2. Chiudi buchi interni (closing)
-    mask_clean = cv2.morphologyEx(mask_clean, cv2.MORPH_CLOSE, kernel)
-
-    # 3. (opzionale) Gaussian blur per bordi morbidi
-    mask_blurred = cv2.GaussianBlur(mask_clean, (5, 5), 0)
-    mask_blurred = mask_blurred/255
-
-    return mask_blurred
-
-
-
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -190,13 +120,17 @@ model_type = "vit_b"
 
 
 
-sam = sam_model_registry[model_type](checkpoint=sam_checkpoint)
-sam.to(device=device)
+sam1 = sam_model_registry[model_type](checkpoint=sam_checkpoint)
+sam1.to(device=device)
 #ASSEGNO L'IMAGE ENCODER DISTILLATO A SAM
-sam.image_encoder = model.image_encoder
-sam.eval()
+sam1.image_encoder = model.image_encoder
+sam1.eval()
 model.eval()
-predictor = SamPredictor(sam)
+predictor = SamPredictor(sam1)
+sam = sam_model_registry["vit_b"](checkpoint="checkpoints/sam_vit_b_01ec64.pth")
+sam.to(device=device)
+sam.eval()
+teacher = SamPredictor(sam)
 #print("State dict keys:", state_dict.keys())
 """
 checkpoint = torch.load("C:/Users/User/OneDrive - Politecnico di Milano/Documenti/POLIMI/Tesi/distillation/checkpoints/student_checkpoint.pth", map_location="cpu")
@@ -272,14 +206,13 @@ for images, labels in dataloaderTest:  # i->batch index, images->batch of images
                         input_label.append(1)
                         x, y, w, h = cv2.boundingRect(countour)
                         bbox.append([x, y, x + w, y + h])
-            centroids = torch.tensor(centroids,device=device)
+            centroids = np.array(centroids)
             print(centroids)
 
             bbox = torch.tensor(bbox).float()
             original_size = tuple(map(int, images[0].shape[-2:]))
             transformed_boxes = predictor.transform.apply_boxes_torch(bbox, (1024,1024))
-            centroids = predictor.transform.apply_coords_torch(centroids, (1024, 1024)).unsqueeze(0)
-            input_label = torch.tensor(input_label, dtype=torch.int64).unsqueeze(0)
+
             #image = np.transpose(image,(1,2,0))
             image = (image * 0.5 + 0.5) * 255
             image = image.astype(np.uint8)
@@ -290,25 +223,45 @@ for images, labels in dataloaderTest:  # i->batch index, images->batch of images
             start_time = time.time()
 
             predictor.set_image(image)
-            masks, _, low_res = predict_points_boxes(predictor, transformed_boxes, centroids, input_label)
+            masks, _, low_res= predictor.predict_torch(
+                # predict_torch serve quando ho le bboxes altrimenti predictor.predict
+                point_coords=None,
+                point_labels=None,
+                boxes=transformed_boxes,
+                multimask_output=False,
+            )
+            teacher.set_image(image)
+            masks_teacher, scores, low_res_teacher = teacher.predict_torch(
+                point_coords=None,
+                point_labels=None,
+                boxes=transformed_boxes,
+                multimask_output=False,
+            )
+            #vec = torch.sigmoid(low_res)
+            #vec = F.interpolate(vec, (1024,1024), mode="bilinear", align_corners=False)
+
+            #unique,values = np.unique(low_res, return_counts=True)
+            #print("unique",unique)
+            #print("values",values)
             end_time = time.time()
+
             maskunion = np.zeros_like(masks[0].cpu().numpy())
-            for mask in masks:
-                mask = mask.detach().cpu().numpy()
-                mask = refining(mask)
+            maskunionTeach = np.zeros_like(masks_teacher[0].cpu().numpy())
+            for mask,maskT in zip(masks,masks_teacher):
 
 
-                #show_mask(mask.cpu().numpy(), plt.gca(), random_color=True)
-                #values, counts = np.unique(mask.cpu().numpy(), return_counts=True)
-                #print("unique", values)
-                #print("counts", counts)
+                show_mask(mask.cpu().numpy(), plt.gca(), random_color=True)
+                values, counts = np.unique(mask.cpu().numpy(), return_counts=True)
+                print("unique", values)
+                print("counts", counts)
 
 
-                maskunion = np.logical_or(maskunion, mask)
+                maskunion = np.logical_or(maskunion, mask.cpu().numpy())
+                maskunionTeach = np.logical_or(maskunionTeach, maskT.cpu().numpy())
 
 
             latency = (end_time - start_time) * 1000
-            iou = calculate_iou(maskunion, label)
+            iou = calculate_iou(maskunion, maskunionTeach)
 
             timeDf.loc[len(timeDf)] = [latency, len(timeDf), iou]
 timeDf.to_csv('RISULTATI/TimeDfBBoxStudent.csv', index=False)

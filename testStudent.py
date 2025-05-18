@@ -7,33 +7,18 @@ from matplotlib import pyplot as plt
 import numpy as np
 import time
 import cv2
+from datasets import load_dataset
 
-from Dataser import ImageMaskDataset
+from Dataser import ImageMaskDataset,CholecDataset
 import torch
 from torch.utils.data import DataLoader
 from torchvision import transforms
 from build_CMT_sam import sam_model_registry
 import torch.nn.functional as F
-
+from datasets import load_dataset_builder
 from PIL import Image
 
-image_dirs_val = ["MICCAI/instrument_1_4_testing/instrument_dataset_4/left_frames"]
-mask_dirs_val = ["MICCAI/instrument_2017_test/instrument_2017_test/instrument_dataset_4/BinarySegmentation"]
-image_transform = transforms.Compose([
-    transforms.Resize((1024,1024)),
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.5,0.5,0.5],std = [0.5,0.5,0.5])
 
-
-
-])
-mask_transform  = transforms.Compose([
-
-    transforms.Resize((1024,1024)),
-    transforms.ToTensor()
-])
-datasetTest = ImageMaskDataset(image_dirs=image_dirs_val,mask_dirs=mask_dirs_val,transform=image_transform,mask_transform=mask_transform)
-dataloaderTest = DataLoader(datasetTest,batch_size=2,shuffle=True)
 def display_image(dataset, image_index):
     '''Display the image and corresponding three masks.'''
 
@@ -102,10 +87,105 @@ def show_box(box, ax):
     w, h = box[2] - box[0], box[3] - box[1]
     ax.add_patch(plt.Rectangle((x0, y0), w, h, edgecolor='green', facecolor=(0, 0, 0, 0), lw=2))
 
+def refining(mask):
+    # 1. Rimuovi rumore (morphological opening)
+    #mask = mask.detach().cpu().numpy()
+    mask = (mask * 255).astype(np.uint8)
+    while mask.ndim > 2:
+        mask = mask[0]
+    kernel = np.ones((3, 3), np.uint8)
+    mask_clean = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
 
 
 
-student_checkpoint = "checkpoints/05_05/decoupledVitB6j0l7.pth"
+    # 2. Chiudi buchi interni (closing)
+    mask_clean = cv2.morphologyEx(mask_clean, cv2.MORPH_CLOSE, kernel)
+
+    # 3. (opzionale) Gaussian blur per bordi morbidi
+    mask_blurred = cv2.GaussianBlur(mask_clean, (5, 5), 0)
+    mask_blurred = mask_blurred/255
+
+    return mask_blurred
+def predict_boxes(predictor, boxes):
+
+
+    masks, _, low_res = predictor.predict_torch(
+        # predict_torch serve quando ho le bboxes altrimenti predictor.predict
+        point_coords=None,
+        point_labels=None,
+        boxes=boxes,
+        multimask_output=False,
+    )
+    return masks, _, low_res
+
+def predict_points_boxes(predictor,boxes,centroids,input_label):
+    all_masks = []
+    all_scores = []
+    all_low_res = []
+    print(transformed_boxes.shape)
+    print(input_label.shape)
+    print(centroids.shape)
+
+    # centroids: torch.Size([1, N, 2])
+    # input_label: torch.Size([1, N])
+    # boxes: torch.Size([num_boxes, 4]) — num_boxes > 1
+
+    #devo creare le maschere dando in nput una box e un punto per volta perche non è possible dare piu boxe
+    #e allo stesso tempo piu punti
+
+    for i in range(boxes.shape[0]):
+        box = boxes[i].unsqueeze(0)  # shape: [1, 4], batch size 1
+        print(box.shape)
+        centroid = centroids[:,i,:].unsqueeze(0) # shape: [1,1,2]
+        print(centroid.shape)
+        input = input_label[:,i].unsqueeze(0) # shape: [1, N]
+        print(input.shape)
+        masks, scores, low_res = predictor.predict_torch(
+            point_coords=centroid,
+            point_labels=input,
+            boxes=box,
+            multimask_output=False
+        )
+
+        all_masks.append(masks)  # masks: [1, C, H, W]
+        all_scores.append(scores)  # scores: [1, C]
+        all_low_res.append(low_res)  # low_res: [1, C, H, W]
+
+    # Concatenazione lungo la dimensione delle maschere (C)
+    final_masks = torch.cat(all_masks, dim=0)  # [1, total_C, H, W]
+    final_scores = torch.cat(all_scores, dim=0)  # [1, total_C]
+    final_low_res = torch.cat(all_low_res, dim=0)
+
+    return final_masks, final_scores, final_low_res
+########################################################################################################
+
+image_dirs_val = ["MICCAI/instrument_1_4_testing/instrument_dataset_4/left_frames"]
+mask_dirs_val = ["MICCAI/instrument_2017_test/instrument_2017_test/instrument_dataset_4/BinarySegmentation"]
+image_transform = transforms.Compose([
+    transforms.Resize((1024,1024)),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.5,0.5,0.5],std = [0.5,0.5,0.5])
+
+
+
+])
+mask_transform  = transforms.Compose([
+
+    transforms.Resize((1024,1024)),
+    transforms.ToTensor()
+])
+def contains_instrument(example):
+    mask = np.array(example["color_mask"])  # o "segmentation" se diverso
+    return np.any((mask == 169) | (mask == 170))
+
+#datasetCholec = load_dataset("minwoosun/CholecSeg8k", trust_remote_code=True)
+
+#filtered_ds = datasetCholec['train'].filter(contains_instrument)
+datasetTest = ImageMaskDataset(image_dirs=image_dirs_val,mask_dirs=mask_dirs_val,transform=image_transform,mask_transform=mask_transform)
+#datasetTest = CholecDataset(hf_dataset=filtered_ds, transform=image_transform, mask_transform=mask_transform)
+dataloaderTest = DataLoader(datasetTest,batch_size=2,shuffle=True)
+
+student_checkpoint = "checkpoints/13_05/decoupledVitBDGfFE.pth"
 state_dict = torch.load(student_checkpoint, map_location=torch.device('cpu'))
 model = sam_model_registry["CMT"](checkpoint=None)
 model.load_state_dict(state_dict)
@@ -196,50 +276,50 @@ for images, labels in dataloaderTest:  # i->batch index, images->batch of images
                         input_label.append(1)
                         x, y, w, h = cv2.boundingRect(countour)
                         bbox.append([x, y, x + w, y + h])
-            centroids = np.array(centroids)
+            centroids = torch.tensor(centroids,device=device)
             print(centroids)
+
 
             bbox = torch.tensor(bbox).float()
             original_size = tuple(map(int, images[0].shape[-2:]))
             transformed_boxes = predictor.transform.apply_boxes_torch(bbox, (1024,1024))
-
+            #transformed_boxes = transformed_boxes.unsqueeze(0)
+            centroids = predictor.transform.apply_coords_torch(centroids,(1024,1024)).unsqueeze(0)
             image = np.transpose(image,(1,2,0))
             image = (image * 0.5 + 0.5) * 255
             image = image.astype(np.uint8)
+            #input_label = ([1] * len(centroids))
+            input_label = torch.tensor(input_label,dtype = torch.int64).unsqueeze(0)
             print(image.shape)
             print("Image shape:", image.shape)
             print("Image min/max values:", image.min(), image.max())
             #plt.imshow(image.permute(1, 2, 0))
             start_time = time.time()
-
+            #input_label = np.array([1] * len(centroids))
+            #input_label = torch.tensor(input_label).unsqueeze(0)
+            #centroids = torch.tensor(centroids).unsqueeze(0)
             predictor.set_image(image)
-            masks, _, low_res= predictor.predict_torch(
-                # predict_torch serve quando ho le bboxes altrimenti predictor.predict
-                point_coords=None,
-                point_labels=None,
-                boxes=transformed_boxes,
-                multimask_output=False,
-            )
+            masks,_,low_res = predict_points_boxes(predictor,transformed_boxes,centroids,input_label)
             #vec = torch.sigmoid(low_res)
             #vec = F.interpolate(vec, (1024,1024), mode="bilinear", align_corners=False)
-
+            end_time = time.time()
             unique,values = np.unique(low_res, return_counts=True)
             print("unique",unique)
             print("values",values)
-            end_time = time.time()
+
             plt.figure(figsize=(10, 10))
             plt.imshow(image)
             maskunion = np.zeros_like(masks[0].cpu().numpy())
             for mask in masks:
-
-
-                show_mask(mask.cpu().numpy(), plt.gca(), random_color=True)
-                values, counts = np.unique(mask.cpu().numpy(), return_counts=True)
+                mask = mask.cpu().numpy()
+                mask = refining(mask)
+                show_mask(mask, plt.gca(), random_color=True)
+                values, counts = np.unique(mask ,return_counts=True)#mask.cpu().numpy()
                 print("unique", values)
                 print("counts", counts)
 
 
-                maskunion = np.logical_or(maskunion, mask.cpu().numpy())
+                maskunion = np.logical_or(maskunion, mask)
             for box in bbox:
                 show_box(box.cpu().numpy(), plt.gca())
             plt.axis('off')

@@ -1,5 +1,6 @@
 
 import pandas as pd
+from torch.utils.checkpoint import checkpoint
 from torch.utils.data import DataLoader
 from Dataser import CholecDataset
 from losses import DistillationLoss
@@ -38,7 +39,7 @@ def generate_random_name(length=8):
     return ''.join(random.choices(string.ascii_letters + string.digits, k=length))
 
 wandb.login(key='14497a5de45116d579bde37168ccf06f78c2928e')  # Replace 'your_api_key' with your actual API key
-name = "decoupledVitB"+generate_random_name(5)
+name = "autoSam"+generate_random_name(5)
 
 datasetCholec = load_dataset("minwoosun/CholecSeg8k", trust_remote_code=True)
 def contains_instrument(example):
@@ -47,56 +48,50 @@ def contains_instrument(example):
 
 filtered_ds = datasetCholec["train"].filter(contains_instrument)
 
+
 seed = 42
 os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
 torch.manual_seed(seed)
 np.random.seed(seed)
+device = "cuda" if torch.cuda.is_available() else "cpu"
 
 
-#sam = sam_model_registry["vit_b"](
-#   checkpoint="/home/mdezen/distillation/checkpoints/sam_vit_b_01ec64.pth")
-#predictor = SamPredictor(sam)
-#device = "cuda" if torch.cuda.is_available() else "cpu"
-#sam.to(device=device)
-#sam.eval( )
 
-#CARICO IL MODELLO REPVIT SAM
-sam_checkpoint = "/home/mdezen/distillation/checkpoints/sam_vit_b_01ec64.pth"
-model_type = "vit_b"
+
+#CREO UN MODELLO SAM CON ENCODER CMT CHE USERO  COME TEACHER FREEZANDO IL DECODER
+
+teacher_checkpoint = "checkpoints/13_05/decoupledVitBg4SXZ.pth"
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-sam = sam_model_registry[model_type](checkpoint=sam_checkpoint)
-sam.to(device=device)
-predictor = SamPredictor(sam)
 
-
-#carico i pesi del decoder e li assegno al modello, il decoder restera freezato e al limite fine tunnato
-#CREO UN MODELLO SAM CON ENCODER CMT
-model = sam_model_registry["CMT"]()
+model = sam_model_registry["CMT"](teacher_checkpoint)
 model.to(device=device)
-
-transformer_dim = model.mask_decoder.transformer_dim
-transformer = model.mask_decoder.transformer
-
-
-cloned_mask_decoder = type(sam.mask_decoder)(transformer_dim=transformer_dim, transformer=transformer)
-cloned_mask_decoder.load_state_dict(sam.mask_decoder.state_dict())  # Copy the weights
-model.mask_decoder = cloned_mask_decoder
-
-
-# CONGELO TUTTO E SBLOCCO SOLO L'ENCODER
-for param in model.parameters():
-    param.requires_grad = False
-for param in model.image_encoder.parameters():
-    param.requires_grad = True
-
-for original_param, cloned_param in zip(sam.mask_decoder.parameters(), model.mask_decoder.parameters()):
-    assert torch.equal(original_param.to(device=device), cloned_param.to(device=device)), "The weights do not match!"
 
 
 
 model.train()
+# CONGELO TUTTO E SBLOCCO SOLO L'ENCODER
+for param in model.parameters():
+    param.requires_grad = False
+for param in model.mask_decoder.parameters():
+    param.requires_grad = True
+
+
+#MODELLO STUDENT
+
+student = sam_model_registry["autoSam"]()
+cloned_image_encoder = type(model.image_encoder)(model.image_encoder.embed_dim, model.image_encoder.depth, model.image_encoder.num_heads, model.image_encoder.mlp_ratio, model.image_encoder.qkv_bias, model.image_encoder.norm_layer)
+cloned_image_encoder.load_state_dict(model.image_encoder.state_dict())  # Copy the weights
+model.image_encoder = cloned_image_encoder
+
+student.to(device=device)
+student.train()
+
+for param in student.parameters():
+    param.requires_grad = False
+for param in student.mask_decoder.parameters():
+    param.requires_grad = True
 
 batch_size = 2
 lr = 0.001
@@ -113,6 +108,8 @@ loss_scaler = NativeScaler()
 
 criterion = nn.MSELoss()
 epochs = 20
+
+
 image_transform = transforms.Compose([
     transforms.Resize((1024,1024)),
     transforms.RandomHorizontalFlip(p=0.5),
@@ -143,8 +140,8 @@ run = wandb.init(
     # Track hyperparameters and run metadata.
     config={
         "learning_rate": lr,
-        "architecture": "CMT/VitB",
-        "dataset": "CholecSeg8k(169,170)",
+        "architecture": "CMT/autoSam",
+        "dataset": "MICCAI",
         "epochs": epochs,
         "criterion": "MSE",
         "batch_size": batch_size,
@@ -207,52 +204,14 @@ mask_dirs_train = [
 datasetVal = ImageMaskDataset(image_dirs=image_dirs_val,mask_dirs=mask_dirs_val,transform=image_transform,mask_transform=mask_transform)
 dataloaderVal = DataLoader(datasetVal,batch_size=batch_size,shuffle=True)
 
-dataset_cholec = CholecDataset(filtered_ds, transform=image_transform, mask_transform=mask_transform)
+#dataset_cholec = CholecDataset(filtered_ds, transform=image_transform, mask_transform=mask_transform)
 datasetMiccai = ImageMaskDataset(image_dirs=image_dirs_train,mask_dirs=mask_dirs_train,transform=image_transform,mask_transform=mask_transform)
 
 #dataset_finale = ConcatDataset([dataset_cholec, datasetMiccai])
 
-dataloader = DataLoader(dataset_cholec,batch_size=batch_size,shuffle=True,pin_memory=True)
+dataloader = DataLoader(datasetMiccai,batch_size=batch_size,shuffle=True,pin_memory=True)
 for images, masks in dataloader:
     print(f"Batch di immagini: {images.shape}")  # (batch_size, 3, 224, 224)
     print(f"Batch di maschere: {masks.shape}")  # (batch_size, 1, 224, 224)
     break
-
-
-
-
-#TRAINING
-patience = 3  # Number of epochs to wait for improvement
-best_val_loss = float('inf')
-epochs_no_improve = 0
-checkpoint_path = "checkpoints/13_05/" + name+".pth"
-
-torch.cuda.empty_cache()
-gc.collect()
-for epoch in range(0, epochs):
-
-
-    train_stats = train_one_epoch(model.image_encoder,sam.image_encoder,epoch,criterion,dataloader,optimizer,device,run)
-
-    torch.cuda.empty_cache()
-    gc.collect()
-    #print(epoch)
-    val_loss = validate_one_epoch(model.image_encoder,sam.image_encoder,dataloaderVal,criterion ,device,epoch,run)
-    print(
-        f"Epoch {epoch} loss: {val_loss}")
-    if val_loss < best_val_loss:
-        print(f"Validation loss improved from {best_val_loss:.4f} to {val_loss:.4f}. Saving model...")
-        best_val_loss = val_loss
-        epochs_no_improve = 0
-        torch.save(model.state_dict(), checkpoint_path)  # Save the best model
-    else:
-        epochs_no_improve += 1
-        print(f"No improvement for {epochs_no_improve} epoch(s).")
-
-        # Early stopping condition
-    if epochs_no_improve >= patience:
-        print("Early stopping triggered.")
-        break
-
-
 

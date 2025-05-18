@@ -54,7 +54,7 @@ def build_sam_repvit(checkpoint=None):
             image_encoder=create_model('repvit'),
             prompt_encoder=PromptEncoder(
             embed_dim=prompt_embed_dim,
-            image_embedding_size=(image_embedding_size, image_embedding_size),
+            image_embedding_size=(image_embedding_size, image_embedding_size),#64,64
             input_image_size=(image_size, image_size),
             mask_in_chans=16,
             ),
