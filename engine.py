@@ -19,6 +19,8 @@ from timm.utils import accuracy, ModelEma
 
 from losses import DistillationLoss
 import utils
+from repvit_sam import SamPredictor
+
 """
 import builtins
 import inspect
@@ -222,19 +224,7 @@ def train_one_epoch_coupled(modelS,predictorS,predictorT,epoch,criterion,dataloa
                     if torch.isnan(masks[i]).any():
                         print("NaN detected in predictions teach!")
 
-                #print(low_res_teach.shape)
-                #print(low_res_teach)
-                """
-                predictorS.set_image(image)
 
-                masks, _, low_res_stud = predictorS.predict_torch(
-                    # predict_torch serve quando ho le bboxes altrimenti predictor.predict
-                    point_coords=None,
-                    point_labels=None,
-                    boxes=transformed_boxes,
-                    multimask_output=False,
-                ) 
-                """
                 image = image.unsqueeze(0)
 
                 image_embeddings = modelS.image_encoder(image)  # -> dict con "image_embed"
@@ -262,6 +252,7 @@ def train_one_epoch_coupled(modelS,predictorS,predictorT,epoch,criterion,dataloa
                 maskunion_stud = torch.zeros((1,1,1024,1024)).to(device)
                 for i in range(low_res_stud.shape[0]):
                     mask = masks[i].float()
+
                     maskunion_stud = torch.max(maskunion_stud, mask.float())
 
 
@@ -305,7 +296,175 @@ def train_one_epoch_coupled(modelS,predictorS,predictorT,epoch,criterion,dataloa
 
     return epoch_loss
 
+def train_one_epoch_auto(model,student,
+                         dataloader,
+                         optimizer,
+                         device,
+                         run,
+                         epoch,
+                         criterion,
+                         ):
+    #model.train()
+    bar = tqdm(enumerate(dataloader), total=len(dataloader), desc=f"Epoch {epoch}")
+    running_loss = 0.0
+    dataset_size = 0
+    epoch_loss = 0.0
+    scaler = torch.amp.GradScaler()
+    predictor = SamPredictor(model)
 
+    for i, (images, labels) in bar:  # i->batch index, images->batch of images, labels->batch of labels
+
+        # with torch.amp.autocast(device_type = "cuda"):
+
+        images = images.to(device)
+        # print(images.shape)
+        # print(images.shape) #secondo me da rivedere i formati, forse np.array, swap dei canali prima di fare predictor .setimage
+        labels = labels.to(device)
+        # print(labels.shape)
+        # print(labels.shape)
+        results_teach = []
+        logits_teach = []
+        results_stud = []
+        mask = torch.zeros((1, 1, 1024, 1024)).to(device)
+        result_mask = []
+        gt = []
+        for image, label in zip(images, labels):
+            # Convert the mask to a binary mask
+            label = label.detach().cpu().numpy()
+            label = label[0]
+            # print("label",label)
+            # print(label.shape)
+            # Convert to binary mask
+            label = (label > 0).astype(np.uint8)
+            # Convert to binary mask
+            image_array = image.cpu().numpy()
+            image = image.unsqueeze(0)
+            # print(image.shape)
+
+            contours, _ = cv2.findContours(label, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            contours = sorted(contours, key=cv2.contourArea, reverse=True)[:2]
+            # print("contours",contours)
+
+            centroids = []
+            input_label = []
+            bbox = []
+            if contours:
+                for countour in contours:
+                    M = cv2.moments(countour)
+                    if M["m00"] != 0:
+                        centroid_x = int(M["m10"] / M["m00"])
+                        centroid_y = int(M["m01"] / M["m00"])
+                        centroids.append([centroid_x, centroid_y])
+                        input_label.append(1)
+                        x, y, w, h = cv2.boundingRect(countour)
+                        bbox.append([x, y, x + w, y + h])
+                centroids = np.array(centroids)
+            # print(centroids)
+
+            bbox = torch.tensor(bbox).float()
+            centroids = torch.tensor(centroids).float().unsqueeze(0)
+
+            # image_array = np.transpose(image_array, (1, 2, 0))
+
+            original_size = tuple(map(int, images[0].shape[-2:]))
+
+
+
+            input_label = torch.tensor(input_label, dtype=torch.int64).unsqueeze(0)
+            # print(image.shape)
+
+            image_embedding_model = model.image_encoder(image)  # in teoria posso passare n batch di immagini
+            masks_model, _, low_res = predict_points_boxes_manual(model, image_embedding_model, bbox, centroids,
+                                                           input_label)
+
+            low_res = model.postprocess_masks(low_res, (1024, 1024), (1024, 1024))
+            unique, value = np.unique(low_res.detach().cpu().numpy(), return_index=True)
+            #print("unique",unique)
+            #print("values", value)
+                #print("masks_model",masks_model.shape)
+                #print("masks_model",low_res.shape[0])
+            logits_list = []
+            maskunion = torch.zeros((1, 1024, 1024)).to(device)
+            for i in range(low_res.shape[0]):
+                    mask = masks_model[i].float()  # ricordarsi .foat con Bcelogits
+                    mask = mask > model.mask_threshold
+                    maskunion = torch.logical_or(maskunion, mask)
+
+                    #print(mask.shape)
+                    #low_res_n = low_res[i]#1,256,256
+                    logits_list.append(low_res[i]) #devo unire in unica maschera il risultato perche il mio modello teacher produce tante maschere qunati gli strumenti invece il mio modello produce una maschera per immagine
+
+                 # tutti tensor reali (negativi/positivi)
+
+            union_logits = torch.full_like(logits_list[0], float('-inf'))
+                #print("logits_list",logits_list[0].shape)
+
+
+
+            for logits in logits_list:
+                union_logits = torch.maximum(union_logits, logits)
+
+
+
+
+
+            results_teach.append(union_logits)
+
+
+            image_embeddings = student.image_encoder(image)  # -> dict con "image_embed"
+
+
+
+                # 3. Decode final mask
+            low_res_stud, _ = student.mask_decoder(
+                    image_embeddings=image_embeddings,  # dict
+                    image_pe=student.prompt_encoder.get_dense_pe(),
+
+
+                    multimask_output=False
+                )
+            low_res_stud = student.postprocess_masks(low_res_stud, (1024, 1024), (1024, 1024))
+
+                #maskunion_stud = torch.zeros((1, 1, 1024, 1024)).to(device)
+            for i in range(low_res_stud.shape[0]):
+                    low_res_stud_temp = low_res_stud[i].float()
+                    #maskunion_stud = torch.max(maskunion_stud, mask.float())
+
+                    results_stud.append(low_res_stud_temp)
+
+
+        results_teach = torch.stack(results_teach).to(device)
+        target = torch.sigmoid(results_teach.detach())
+        results_stud = torch.stack(results_stud).to(device)
+        unique,value = np.unique(results_teach.detach().cpu().numpy(),return_index=True)
+        #print("uniqueTeach",unique)
+        #print("valueTeach",value)
+        unique,value = np.unique(results_stud.detach().cpu().numpy(),return_index=True)
+        #print("uniqueStud",unique)
+
+
+        with torch.amp.autocast(device_type="cuda"):
+            loss = criterion(results_stud.float(), target.float())
+            #print("loss", loss)
+
+        if torch.isfinite(loss):
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+        else:
+            print(f"Skipping step at batch {i} due to non-finite loss: {loss}")
+            optimizer.zero_grad(set_to_none=True)
+            continue  # salta al batch successivo
+
+            # Update progress
+        batch_size = images.shape[0]
+        running_loss += loss.item() * batch_size
+        dataset_size += batch_size
+        epoch_loss = running_loss / dataset_size
+        bar.set_description(f"Loss: {loss.item()}")
+        run.log({"train_loss": epoch_loss, "epoch": epoch + 1, "batch": i + 1})
+        bar.set_postfix(Epoch=epoch, Train_loss=epoch_loss, LR=optimizer.param_groups[0]['lr'])
+    return epoch_loss
 
 
 
@@ -506,3 +665,154 @@ def validate_one_epoch_coupled(
 
 
     return epoch_loss
+
+def validate_one_epoch_auto(
+    model,              # student
+    student,            # teacher
+    dataloader,         # validation DataLoader
+    criterion,          # es. MSELoss o CosineSimilarity
+    device,             # "cuda"
+    epoch,               # epoch corrente (per logging)
+    run
+):
+    model.eval()
+    student.eval()
+
+    running_loss = 0.0
+    dataset_size = 0
+
+    bar = tqdm(enumerate(dataloader), desc=f"[Val] Epoch {epoch}", leave=False)
+
+    with torch.no_grad():
+
+
+        for i, (images, labels) in bar:  # i->batch index, images->batch of images, labels->batch of labels
+
+            # with torch.amp.autocast(device_type = "cuda"):
+
+            images = images.to(device)
+            #print(images.shape)
+            # print(images.shape) #secondo me da rivedere i formati, forse np.array, swap dei canali prima di fare predictor .setimage
+            labels = labels.to(device)
+            #print(labels.shape)
+            # print(labels.shape)
+            results_teach = []
+            logits_teach = []
+            results_stud = []
+            mask = torch.zeros((1, 1, 1024, 1024)).to(device)
+            result_mask = []
+            gt = []
+            for image, label in zip(images, labels):
+                # Convert the mask to a binary mask
+                label = label.detach().cpu().numpy()
+                label = label[0]
+                # print("label",label)
+                # print(label.shape)
+                # Convert to binary mask
+                label = (label > 0).astype(np.uint8)
+                # Convert to binary mask
+                image_array = image.cpu().numpy()
+                image = image.unsqueeze(0)
+               # print(image.shape)
+
+                contours, _ = cv2.findContours(label, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                contours = sorted(contours, key=cv2.contourArea, reverse=True)[:2]
+                # print("contours",contours)
+
+                centroids = []
+                input_label = []
+                bbox = []
+                if contours:
+                    for countour in contours:
+                        M = cv2.moments(countour)
+                        if M["m00"] != 0:
+                            centroid_x = int(M["m10"] / M["m00"])
+                            centroid_y = int(M["m01"] / M["m00"])
+                            centroids.append([centroid_x, centroid_y])
+                            input_label.append(1)
+                            x, y, w, h = cv2.boundingRect(countour)
+                            bbox.append([x, y, x + w, y + h])
+                centroids = np.array(centroids)
+                # print(centroids)
+
+                bbox = torch.tensor(bbox).float()
+                centroids = torch.tensor(centroids).float().unsqueeze(0)
+                # transformed_boxes = predictorT.transform.apply_boxes_torch(bbox, images[0].shape[:2])
+                # plt.figure(figsize=(10, 10))
+                # plt.imshow(images[0].permute(1, 2, 0).cpu().numpy())
+
+                #image_array = np.transpose(image_array, (1, 2, 0))
+
+                original_size = tuple(map(int, images[0].shape[-2:]))
+                # transformed_boxes = predictor.transform.apply_boxes_torch(bbox, (1024, 1024))
+                # transformed_boxes = transformed_boxes.unsqueeze(0)
+                # centroids = predictor.transform.apply_coords_torch(centroids, (1024, 1024)).unsqueeze(0)
+
+                # input_label = ([1] * len(centroids))
+                input_label = torch.tensor(input_label, dtype=torch.int64).unsqueeze(0)
+                #print(image.shape)
+
+                image_embedding_model = model.image_encoder(image)  # in teoria posso passare n batch di immagini
+                masks_model, _, low_res = predict_points_boxes_manual(model, image_embedding_model, bbox, centroids,
+                                                               input_label)
+                low_res = model.postprocess_masks(low_res, (1024, 1024), (1024, 1024))
+                maskunion_teach = torch.zeros(( 1, 1024, 1024)).to(device)
+                for i in range(low_res.shape[0]):
+                    mask = masks_model[i].float()
+                    mask = mask > model.mask_threshold                                # ricordarsi .foat con Bcelogits
+                    logits_teach.append(low_res[i])
+                    maskunion_teach = torch.logical_or(maskunion_teach, mask)
+
+                union_logits = torch.full_like(logits_teach[0], float('-inf'))
+
+                for logits in logits_teach:
+                    union_logits = torch.maximum(union_logits, logits)
+                results_teach.append(union_logits)
+
+                image_embeddings = student.image_encoder(image)
+
+                # 3. Decode final mask
+                low_res_stud, _ = student.mask_decoder(
+                    image_embeddings=image_embeddings,  # dict
+                    image_pe=student.prompt_encoder.get_dense_pe(),
+
+                    multimask_output=False
+                )
+                low_res_stud = student.postprocess_masks(low_res_stud, (1024, 1024), (1024, 1024))
+                #masks = student.postprocess_masks(low_res_stud, (1024, 1024), (1024, 1024))
+
+                # masks = masks > modelS.mask_threshold
+                # masks = masks.float()
+
+                maskunion_stud = torch.zeros((1, 1, 1024, 1024)).to(device)
+                for i in range(low_res_stud.shape[0]):
+                    low_res_temp = low_res_stud[i].float()
+                    #maskunion_stud = torch.max(maskunion_stud, mask.float())
+
+                    results_stud.append(low_res_temp)
+                    # print("Min:", mask.min(), "Max:", mask.max())
+                    # mask = torch.logical_or(mask,masks[i])
+                    # result_mask = result_mask.append(mask)
+                    # print(low_res_stud[i])
+                # gt = gt.append(label)
+
+            results_teach = torch.stack(results_teach).to(device)
+            target = torch.sigmoid(results_teach.detach())
+            logits_teach = torch.stack(logits_teach).to(device)
+            results_stud = torch.stack(results_stud).to(device)
+
+
+            loss = criterion(results_stud.float(), target.float())
+
+
+
+            # Update progress
+            batch_size = images.shape[0]
+            running_loss += loss.item() * batch_size
+            dataset_size += batch_size
+            epoch_loss = running_loss / dataset_size
+            bar.set_description(f"Loss: {loss.item()}")
+            run.log({"val_loss": epoch_loss, "epoch": epoch + 1, "batch": i + 1})
+            bar.set_postfix(Epoch=epoch, Val_loss=epoch_loss)
+        return epoch_loss
+

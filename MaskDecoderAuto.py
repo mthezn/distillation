@@ -5,7 +5,7 @@ from torch.nn import functional as F
 from typing import List, Tuple, Type
 from common import LayerNorm2d, MLPBlock
 
-class MaskDecoder(nn.Module):
+class MaskDecoderAuto(nn.Module):
     def __init__(
         self ,
         *,

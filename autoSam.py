@@ -9,6 +9,7 @@ from repvit_sam.modeling.tiny_vit_sam import TinyViT
 from repvit_sam.modeling.image_encoder import ImageEncoderViT
 from repvit_sam.modeling.mask_decoder import MaskDecoder
 from repvit_sam.modeling.prompt_encoder import PromptEncoder
+from MaskDecoderAuto import MaskDecoderAuto
 
 class AutoSam(nn.Module):
     mask_threshold: float = 0.0
@@ -20,7 +21,7 @@ class AutoSam(nn.Module):
         image_encoder: Union[ImageEncoderViT, TinyViT],
         prompt_encoder: PromptEncoder,
 
-        mask_decoder: MaskDecoder,
+        mask_decoder: MaskDecoderAuto,
         pixel_mean: List[float] = [123.675, 116.28, 103.53],
         pixel_std: List[float] = [58.395, 57.12, 57.375],
     ) -> None:
@@ -38,6 +39,7 @@ class AutoSam(nn.Module):
         """
         super().__init__()
         self.image_encoder = image_encoder
+        self.prompt_encoder = prompt_encoder
 
         self.mask_decoder = mask_decoder
         self.register_buffer("pixel_mean", torch.Tensor(pixel_mean).view(-1, 1, 1), False)

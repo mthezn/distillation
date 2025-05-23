@@ -1,6 +1,7 @@
 from model import CMT_Ti
 from repvit_sam.modeling import  Sam, PromptEncoder, MaskDecoder, TwoWayTransformer,ImageEncoderViT,TinyViT
-from .autoSam import AutoSam
+from autoSam import AutoSam
+from MaskDecoderAuto import MaskDecoderAuto
 import torch
 from timm.models import create_model
 def build_sam_CMT(checkpoint=None):
@@ -53,7 +54,7 @@ def build_sam_encoder_decoder(checkpoint=None):
             input_image_size=(image_size, image_size),
             mask_in_chans=16,
         ),
-        mask_decoder=MaskDecoder(
+        mask_decoder=MaskDecoderAuto(
             num_multimask_outputs=3,
             transformer=TwoWayTransformer(
                 depth=2,
@@ -246,6 +247,8 @@ def build_sam_repvit(checkpoint=None):
             state_dict = torch.load(f)
         repvit_sam.load_state_dict(state_dict)
     return repvit_sam
+
+
 sam_model_registry = {
     "default": build_sam_vit_h,
     "vit_h": build_sam_vit_h,
