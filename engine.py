@@ -40,60 +40,93 @@ def set_bn_state(model):
         if isinstance(m, torch.nn.modules.batchnorm._BatchNorm):
             m.eval()
 
-# def train_one_epoch(model: torch.nn.Module, criterion: DistillationLoss,
-#                     data_loader: Iterable, optimizer: torch.optim.Optimizer,
-#                     device: torch.device, epoch: int, loss_scaler,
-#                     clip_grad: float = 0,
-#                     clip_mode: str = 'norm',
-#                     model_ema: Optional[ModelEma] = None, mixup_fn: Optional[Mixup] = None,
-#                     set_training_mode=True,
-#                     set_bn_eval=False,):
-#     model.train(set_training_mode)
-#     if set_bn_eval:
-#         set_bn_state(model)
-#     metric_logger = utils.MetricLogger(delimiter="  ")
-#     metric_logger.add_meter('lr', utils.SmoothedValue(
-#         window_size=1, fmt='{value:.6f}'))
-#     header = 'Epoch: [{}]'.format(epoch)
-#     print_freq = 100
-#
-#     for samples, targets in metric_logger.log_every(
-#             data_loader, print_freq, header):
-#         samples = samples.to(device, non_blocking=True)
-#         targets = targets.to(device, non_blocking=True)
-#
-#         if mixup_fn is not None:
-#             samples, targets = mixup_fn(samples, targets)
-#
-#         with torch.cuda.amp.autocast():
-#             outputs = model(samples)
-#             loss = criterion(samples, outputs, targets)
-#
-#         loss_value = loss.item()
-#
-#         if not math.isfinite(loss_value):
-#             print("Loss is {}, stopping training".format(loss_value))
-#             sys.exit(1)
-#
-#         optimizer.zero_grad()
-#
-#         # this attribute is added by timm on one optimizer (adahessian)
-#         is_second_order = hasattr(
-#             optimizer, 'is_second_order') and optimizer.is_second_order
-#         loss_scaler(loss, optimizer, clip_grad=clip_grad, clip_mode=clip_mode,
-#                     parameters=model.parameters(), create_graph=is_second_order)
-#
-#         torch.cuda.synchronize()
-#         if model_ema is not None:
-#             model_ema.update(model)
-#
-#         metric_logger.update(loss=loss_value)
-#         metric_logger.update(lr=optimizer.param_groups[0]["lr"])
-#     # gather the stats from all processes
-#     metric_logger.synchronize_between_processes()
-#     print("Averaged stats:", metric_logger)
-#     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
+def predict_boxes(predictor, boxes):
 
+
+    masks, _, low_res = predictor.predict_torch(
+        # predict_torch serve quando ho le bboxes altrimenti predictor.predict
+        point_coords=None,
+        point_labels=None,
+        boxes=boxes,
+        multimask_output=False,
+    )
+    return masks, _, low_res
+
+
+def predict_points_boxes_manual(model, image_embedding, boxes, centroids, input_label):
+    all_masks = []
+    all_scores = []
+    all_low_res = []
+    model_device = next(model.prompt_encoder.parameters()).device
+
+
+    for i in range(boxes.shape[0]):
+        # Estrai singola box, punto e label
+        box = boxes[i].unsqueeze(0).to(device=model_device) # [1, 4]
+        point = centroids[:, i, :].unsqueeze(0).to(device=model_device) # [1, 1, 2]
+        label = input_label[:, i].unsqueeze(0).to(device = model_device) # [1, 1]
+
+        # Encode prompt: box + point
+        sparse_embeddings, dense_embeddings = model.prompt_encoder(
+            points=(point, label),
+            boxes=box,
+            masks=None,
+        )
+
+        # Usa mask decoder
+        low_res_logits, score = model.mask_decoder(
+            image_embeddings=image_embedding,          # [1, C, H', W']
+            image_pe=model.prompt_encoder.get_dense_pe(),  # positional encoding
+            sparse_prompt_embeddings=sparse_embeddings,
+            dense_prompt_embeddings=dense_embeddings,
+            multimask_output=False
+        )
+
+        # Upscale maschera a risoluzione originale
+        mask = model.postprocess_masks(low_res_logits, input_size=(image_embedding.shape[-2], image_embedding.shape[-1]),original_size=(1024, 1024))
+
+        all_masks.append(mask)
+        all_scores.append(score)
+        all_low_res.append(low_res_logits)
+
+    # Concatenazione dei risultati
+    if all_masks == []:
+        return torch.zeros((1, 1, 1024, 1024)).to(device=model_device), torch.zeros((1, 1)).to(device=model_device), torch.zeros((1, 1, 1024, 1024)).to(device=model_device)
+    final_masks = torch.cat(all_masks, dim=0)  # [N, 1, H, W]
+    final_scores = torch.cat(all_scores, dim=0)  # [N, 1]
+    final_low_res = torch.cat(all_low_res, dim=0)
+
+    return final_masks, final_scores, final_low_res
+def predict_points_boxes(predictor,image,boxes,centroids,input_label):
+    all_masks = []
+    all_scores = []
+    all_low_res = []
+    image_array =(image[0].detach().cpu().numpy())
+    image_array = np.transpose(image_array, (1, 2, 0))
+    predictor.set_image(image_array)
+    model_device = next(predictor.model.parameters()).device  # Assicura coerenza col modello
+
+    for i in range(boxes.shape[0]):
+        box = boxes[i].unsqueeze(0).to(model_device)  # shape: [1, 4]
+        centroid = centroids[:, i, :].unsqueeze(0).to(model_device)  # shape: [1, 1, 2]
+        label = input_label[:, i].unsqueeze(0).to(model_device)  # shape: [1, 1]
+
+        masks, scores, low_res = predictor.predict_torch(
+            point_coords=centroid,
+            point_labels=label,
+            boxes=box,
+            multimask_output=False
+        )
+
+        all_masks.append(masks)
+        all_scores.append(scores)
+        all_low_res.append(low_res)
+
+    final_masks = torch.cat(all_masks, dim=0)
+    final_scores = torch.cat(all_scores, dim=0)
+    final_low_res = torch.cat(all_low_res, dim=0)
+
+    return final_masks, final_scores, final_low_res
 def train_one_epoch(model,teacher,epoch,criterion,dataloader,optimizer,device,run):
     model.train()
     scaler = torch.amp.GradScaler()
