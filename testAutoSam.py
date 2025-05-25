@@ -112,10 +112,19 @@ def refining(mask):
 
 ########################################################################################################
 
-#image_dirs_val = ["MICCAI/instrument_1_4_testing/instrument_dataset_4/left_frames"]
-#mask_dirs_val = ["MICCAI/instrument_2017_test/instrument_2017_test/instrument_dataset_4/BinarySegmentation"]
-image_dirs_val = ["MICCAI/instrument_1_4_training/instrument_dataset_4/left_frames"]
-mask_dirs_val = ["MICCAI/instrument_1_4_training/instrument_dataset_4/ground_truth/Large_Needle_Driver_Left_labels"]
+image_dirs_val = ["MICCAI/instrument_1_4_testing/instrument_dataset_4/left_frames"]
+mask_dirs_val = ["MICCAI/instrument_2017_test/instrument_2017_test/instrument_dataset_4/BinarySegmentation"]
+#image_dirs_val = ["MICCAI/instrument_1_4_training/instrument_dataset_4/left_frames"]
+#mask_dirs_val = ["MICCAI/instrument_1_4_training/instrument_dataset_4/ground_truth/Large_Needle_Driver_Left_labels"]
+image_dirs_train = [
+
+    "MICCAI/instrument_1_4_training/instrument_dataset_1/left_frames",
+]
+mask_dirs_train = [
+    "MICCAI/instrument_1_4_training/instrument_dataset_1/ground_truth/Left_Prograsp_Forceps_labels",
+    "MICCAI/instrument_1_4_training/instrument_dataset_1/ground_truth/Maryland_Bipolar_Forceps_labels",
+    "MICCAI/instrument_1_4_training/instrument_dataset_1/ground_truth/Right_Prograsp_Forceps_labels"]
+
 image_transform = transforms.Compose([
     transforms.Resize((1024, 1024)),
     transforms.ToTensor(),
@@ -134,18 +143,18 @@ def contains_instrument(example):
     return np.any((mask == 169) | (mask == 170))
 
 
-# datasetCholec = load_dataset("minwoosun/CholecSeg8k", trust_remote_code=True)
+datasetCholec = load_dataset("minwoosun/CholecSeg8k", trust_remote_code=True)
 
-# filtered_ds = datasetCholec['train'].filter(contains_instrument)
-datasetTest = ImageMaskDataset(image_dirs=image_dirs_val, mask_dirs=mask_dirs_val, transform=image_transform,
+filtered_ds = datasetCholec['train'].filter(contains_instrument)
+datasetTest = ImageMaskDataset(image_dirs=image_dirs_train, mask_dirs=mask_dirs_train, transform=image_transform,
                                mask_transform=mask_transform)
-# datasetTest = CholecDataset(hf_dataset=filtered_ds, transform=image_transform, mask_transform=mask_transform)
+datasetTest = CholecDataset(hf_dataset=filtered_ds, transform=image_transform, mask_transform=mask_transform)
 dataloaderTest = DataLoader(datasetTest, batch_size=2, shuffle=True)
 
 
 # CARICO UN MODELLO SAM
 # sam_checkpoint = "C:/Users/User/OneDrive - Politecnico di Milano/Documenti/POLIMI/Tesi/distillation/checkpoints/sam_vit_b_01ec64.pth"
-autosam_checkpoint = "checkpoints/21_05/autoSamjZ5xM.pth"
+autosam_checkpoint = "checkpoints/21_05/autoSam6wzDE.pth"
 model_type = "autoSam"
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -198,7 +207,7 @@ for images, labels in dataloaderTest:  # i->batch index, images->batch of images
             multimask_output=False
         )
         low_res = model.postprocess_masks(low_res,(1024,1024),(1024,1024))
-        mask = (low_res < 1) & (low_res > -1)
+        mask = low_res >0
         end_time = time.time()
         mask = mask.cpu().numpy()
 
@@ -215,7 +224,7 @@ for images, labels in dataloaderTest:  # i->batch index, images->batch of images
         plt.show()
 
         # Applica soglia
-        binary_mask = (low_res > 0) & (low_res > -3)
+        binary_mask = (low_res > 0)
 
         # Visualizza maschera sogliata
         plt.imshow(binary_mask.squeeze(), cmap='gray')
@@ -227,6 +236,7 @@ for images, labels in dataloaderTest:  # i->batch index, images->batch of images
         image = (image_to_show * 0.5 + 0.5) * 255
         image = image.astype(np.uint8)
         plt.imshow(image)
+        
 
 
 

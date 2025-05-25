@@ -1,4 +1,5 @@
 import pandas as pd
+from torch.utils.checkpoint import checkpoint
 
 from Dataser import ImageMaskDataset
 from repvit_sam import SamPredictor, sam_model_registry
@@ -118,11 +119,56 @@ def predict_boxes(predictor, boxes):
     )
     return masks, _, low_res
 
+def predict_points_boxes_manual(model, image_embedding, boxes, centroids, input_label):
+    all_masks = []
+    all_scores = []
+    all_low_res = []
+    model_device = next(model.prompt_encoder.parameters()).device
+
+
+    for i in range(boxes.shape[0]):
+        # Estrai singola box, punto e label
+        box = boxes[i].unsqueeze(0).to(device=model_device) # [1, 4]
+        point = centroids[:, i, :].unsqueeze(0).to(device=model_device) # [1, 1, 2]
+        label = input_label[:, i].unsqueeze(0).to(device = model_device) # [1, 1]
+
+        # Encode prompt: box + point
+        sparse_embeddings, dense_embeddings = model.prompt_encoder(
+            points=(point, label),
+            boxes=box,
+            masks=None,
+        )
+
+        # Usa mask decoder
+        low_res_logits, score = model.mask_decoder(
+            image_embeddings=image_embedding,          # [1, C, H', W']
+            image_pe=model.prompt_encoder.get_dense_pe(),  # positional encoding
+            sparse_prompt_embeddings=sparse_embeddings,
+            dense_prompt_embeddings=dense_embeddings,
+            multimask_output=False
+        )
+
+        # Upscale maschera a risoluzione originale
+        mask = model.postprocess_masks(low_res_logits, input_size=(image_embedding.shape[-2], image_embedding.shape[-1]),original_size=(1024, 1024))
+
+        all_masks.append(mask)
+        all_scores.append(score)
+        all_low_res.append(low_res_logits)
+
+    # Concatenazione dei risultati
+    if all_masks == []:
+        return torch.zeros((1, 1, 1024, 1024)).to(device=model_device), torch.zeros((1, 1)).to(device=model_device), torch.zeros((1, 1, 1024, 1024)).to(device=model_device)
+    final_masks = torch.cat(all_masks, dim=0)  # [N, 1, H, W]
+    final_scores = torch.cat(all_scores, dim=0)  # [N, 1]
+    final_low_res = torch.cat(all_low_res, dim=0)
+
+    return final_masks, final_scores, final_low_res
+
 def predict_points_boxes(predictor,boxes,centroids,input_label):
     all_masks = []
     all_scores = []
     all_low_res = []
-    print(transformed_boxes.shape)
+    print(boxes.shape)
     print(input_label.shape)
     print(centroids.shape)
 
@@ -203,8 +249,10 @@ sam.to(device=device)
 sam.image_encoder = model.image_encoder
 sam.eval()
 model.eval()
-predictor = SamPredictor(sam)
-#print("State dict keys:", state_dict.keys())
+predictor = SamPredictor(sam) 
+
+
+
 """
 checkpoint = torch.load("C:/Users/User/OneDrive - Politecnico di Milano/Documenti/POLIMI/Tesi/distillation/checkpoints/student_checkpoint.pth", map_location="cpu")
  
@@ -230,7 +278,7 @@ cloned_prompt_encoder = copy.deepcopy(sam.prompt_encoder)
 model.prompt_encoder = cloned_prompt_encoder 
 """
 #model.to(device=device)
-#model.eval()
+model.eval()
 
 
 
@@ -282,12 +330,17 @@ for images, labels in dataloaderTest:  # i->batch index, images->batch of images
 
             bbox = torch.tensor(bbox).float()
             original_size = tuple(map(int, images[0].shape[-2:]))
-            transformed_boxes = predictor.transform.apply_boxes_torch(bbox, (1024,1024))
+            #transformed_boxes = predictor.transform.apply_boxes_torch(bbox, (1024,1024))
+
             #transformed_boxes = transformed_boxes.unsqueeze(0)
-            centroids = predictor.transform.apply_coords_torch(centroids,(1024,1024)).unsqueeze(0)
+
+            #centroids = predictor.transform.apply_coords_torch(centroids,(1024,1024)).unsqueeze(0)
             image = np.transpose(image,(1,2,0))
             image = (image * 0.5 + 0.5) * 255
             image = image.astype(np.uint8)
+
+
+
             #input_label = ([1] * len(centroids))
             input_label = torch.tensor(input_label,dtype = torch.int64).unsqueeze(0)
             print(image.shape)
@@ -299,18 +352,21 @@ for images, labels in dataloaderTest:  # i->batch index, images->batch of images
             #input_label = torch.tensor(input_label).unsqueeze(0)
             #centroids = torch.tensor(centroids).unsqueeze(0)
             predictor.set_image(image)
-            masks,_,low_res = predict_points_boxes(predictor,transformed_boxes,centroids,input_label)
+            #masks,_,low_res = predict_points_boxes(predictor,transformed_boxes,centroids,input_label)
+            masks, _, low_res = predict_points_boxes(predictor, boxes=bbox, centroids=centroids.unsqueeze(0), input_label=input_label)
+
             unique,values = np.unique(masks, return_counts=True)
             print("unique",unique)
             print("values",values)
             #vec = torch.sigmoid(low_res)
             #vec = F.interpolate(vec, (1024,1024), mode="bilinear", align_corners=False)
             end_time = time.time()
-            unique,values = np.unique(low_res, return_counts=True)
+            #unique,values = np.unique(low_res, return_counts=True)
             print("unique",unique)
             print("values",values)
 
             plt.figure(figsize=(10, 10))
+
             plt.imshow(image)
             maskunion = np.zeros_like(masks[0].cpu().numpy())
             for mask in masks:

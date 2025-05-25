@@ -3,6 +3,7 @@ from repvit_sam.modeling import  Sam, PromptEncoder, MaskDecoder, TwoWayTransfor
 from autoSam import AutoSam
 from MaskDecoderAuto import MaskDecoderAuto
 import torch
+from UnetDecoder import UnetDecoder
 from timm.models import create_model
 def build_sam_CMT(checkpoint=None):
     prompt_embed_dim = 256
@@ -247,7 +248,35 @@ def build_sam_repvit(checkpoint=None):
             state_dict = torch.load(f)
         repvit_sam.load_state_dict(state_dict)
     return repvit_sam
+def build_sam_unet(checkpoint=None):
+    prompt_embed_dim = 256
+    image_size = 1024
+    vit_patch_size = 16
+    image_embedding_size = image_size // vit_patch_size
+    enc_dec = AutoSam(
+        image_encoder=CMT_Ti(img_size=1024),
+        prompt_encoder=PromptEncoder(
+            embed_dim=prompt_embed_dim,
+            image_embedding_size=(image_embedding_size, image_embedding_size),
+            input_image_size=(image_size, image_size),
+            mask_in_chans=16,
+        ),
+        mask_decoder=UnetDecoder(
+            encoder_channels=256,
+            out_channels=1,
 
+
+
+        ),
+        pixel_mean=[123.675, 116.28, 103.53],
+        pixel_std=[58.395, 57.12, 57.375],
+    )
+    enc_dec.eval()
+    if checkpoint is not None:
+        with open(checkpoint, "rb") as f:
+            state_dict = torch.load(f)
+        enc_dec.load_state_dict(state_dict)
+    return enc_dec
 
 sam_model_registry = {
     "default": build_sam_vit_h,
@@ -257,5 +286,6 @@ sam_model_registry = {
     "vit_t": build_sam_vit_t,
     "repvit": build_sam_repvit,
     "CMT": build_sam_CMT,
-    "autoSam": build_sam_encoder_decoder
+    "autoSam": build_sam_encoder_decoder,
+    "autoSamUnet": build_sam_unet
 }

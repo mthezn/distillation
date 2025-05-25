@@ -81,10 +81,8 @@ def bce_soft_hard(student_logits, teacher_logits, T=2.0, alpha=0.7):
 def distillation_loss(student_logits, teacher_logits, T=2.0, alpha=0.7):
 
     # Applica sigmoid con temperatura per ottenere probabilità "soft"
-    student_probs =  torch.sigmoid(student_logits / T)
-
-    teacher_probs =  torch.sigmoid(teacher_logits / T)
-
+    student_probs = torch.sigmoid(student_logits / T).clamp(min=1e-6, max=1 - 1e-6)
+    teacher_probs = torch.sigmoid(teacher_logits / T).clamp(min=1e-6, max=1 - 1e-6)
 
     # KL Divergence tra distribuzioni soft (per ogni pixel e canale)
     #kl_div = F.kl_div(torch.log(student_probs + 1e-6),teacher_probs.log(), reduction='batchmean',log_target=True) * (T**2) / student_logits.numel()
@@ -96,7 +94,7 @@ def distillation_loss(student_logits, teacher_logits, T=2.0, alpha=0.7):
     kl_loss = kl_loss.mean()
 
 
-    bce = F.binary_cross_entropy_with_logits(student_logits, (teacher_logits>0).float())
+    bce = F.binary_cross_entropy_with_logits(student_logits, teacher_probs)
 
 
     # Loss combinata

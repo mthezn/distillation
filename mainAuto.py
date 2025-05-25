@@ -1,10 +1,11 @@
 import copy
-
+import albumentations as A
 import pandas as pd
+from torch.nn import BCEWithLogitsLoss
 from torch.utils.checkpoint import checkpoint
 from torch.utils.data import DataLoader
 from Dataser import CholecDataset
-from losses import DistillationLoss
+from losses import DistillationLoss, distillation_loss
 
 from model import CMT_Ti
 from build_CMT_sam import sam_model_registry
@@ -13,6 +14,7 @@ from Dataser import ImageMaskDataset
 from torch.cuda.amp import GradScaler, autocast
 from repvit_sam.build_sam import build_sam_repvit
 from utils import *
+from albumentations.pytorch import ToTensorV2
 import wandb
 from matplotlib import pyplot as plt
 import numpy as np
@@ -40,13 +42,35 @@ import string
 def generate_random_name(length=8):
     return ''.join(random.choices(string.ascii_letters + string.digits, k=length))
 
+def contains_instrument(example):
+    mask = np.array(example["color_mask"])  # o "segmentation" se diverso
+    return np.any((mask == 169) | (mask == 170))
+
+def get_train_augmentation(image_size=256):
+    return A.Compose([
+        A.RandomResizedCrop(size=(image_size, image_size), scale=(0.5, 1.0), p=1.0),
+        A.HorizontalFlip(p=0.5),
+        A.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.1, p=0.8),
+        A.GaussianBlur(p=0.3),
+        #A.ElasticTransform(alpha=120, sigma=120 * 0.05, alpha_affine=120 * 0.03, p=0.3),
+        A.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
+        ToTensorV2()
+    ])
+def get_val_augmentation(image_size=256):
+    return A.Compose([
+        A.Resize(image_size, image_size),
+        A.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
+        ToTensorV2()
+    ])
+############################################################################################################
+
+
 wandb.login(key='14497a5de45116d579bde37168ccf06f78c2928e')  # Replace 'your_api_key' with your actual API key
 name = "autoSam"+generate_random_name(5)
 
 datasetCholec = load_dataset("minwoosun/CholecSeg8k", trust_remote_code=True)
-def contains_instrument(example):
-    mask = np.array(example["color_mask"])  # o "segmentation" se diverso
-    return np.any((mask == 169) | (mask == 170))
+
+
 
 filtered_ds = datasetCholec["train"].filter(contains_instrument)
 
@@ -105,28 +129,29 @@ for param in student.parameters():
 for param in student.mask_decoder.parameters():
     param.requires_grad = True
 
-batch_size = 2
+batch_size = 4
 lr = 0.001
 linear_scaled_lr = lr * batch_size * utils.get_world_size() / 512.0
 print("caricato tutto")
 optimizer_cfg = {
     'opt': 'adamw',
     'lr': lr,
-    'weight_decay': 0.1,
+    'weight_decay': 1e-4,
 }
 optimizer = create_optimizer_v2(student,**optimizer_cfg)
 loss_scaler = NativeScaler()
 
 
-criterion = nn.BCEWithLogitsLoss()
+criterion = nn.MSELoss()
 epochs = 30
 
 
 image_transform = transforms.Compose([
     transforms.Resize((1024,1024)),
-    transforms.RandomHorizontalFlip(p=0.5),
-    transforms.RandomVerticalFlip(p=0.5),
-    transforms.RandomRotation(degrees=15),
+    transforms.RandomHorizontalFlip(p=0.7),
+
+    transforms.RandomVerticalFlip(p=0.7),
+    transforms.RandomRotation(degrees=45),
     transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.2),
     transforms.GaussianBlur(kernel_size=5, sigma=(0.1, 2.0)),
     #transforms.RandomCrop((256, 256), padding=0),
@@ -139,29 +164,41 @@ image_transform = transforms.Compose([
 mask_transform  = transforms.Compose([
 
     transforms.Resize((1024,1024)),
-    transforms.RandomHorizontalFlip(p=0.5),  # Ensure the same flip as the image
-    transforms.RandomVerticalFlip(p=0.5),  # Ensure the same flip as the image
-    transforms.RandomRotation(degrees=15),
+    transforms.RandomHorizontalFlip(p=0.7),  # Ensure the same flip as the image
+    transforms.RandomVerticalFlip(p=0.7),  # Ensure the same flip as the image
+    transforms.RandomRotation(degrees=45),
     #transforms.RandomCrop((256, 256), ),
     transforms.ToTensor()
+]) 
+validation_transform = transforms.Compose([
+    transforms.Resize((1024,1024)),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.5,0.5,0.5],std = [0.5,0.5,0.5])
+
 ])
+mask_validation_transform = transforms.Compose([
+
+    transforms.Resize((1024, 1024)),
+    transforms.ToTensor()
+])
+
 run = wandb.init(
     # Set the wandb entity where your project will be logged (generally your team name).
 
     # Set the wandb project where this run will be logged.
-    project="autoSamDistillation",
+    project="autoSamDistillationNew",
     name=name,
     # Track hyperparameters and run metadata.
     config={
         "learning_rate": lr,
         "architecture": "CMT/autoSam",
-        "dataset": "Miccai*3",
+        "dataset": "Miccai",
         "epochs": epochs,
-        "criterion": "BCEWithLogitsLoss",
+        "criterion": "MSE",
         "batch_size": batch_size,
         "optimizer": optimizer_cfg['opt'],
         "weight_decay": optimizer_cfg['weight_decay'],
-        "augmentation": str(image_transform),
+        "augmentation": str(get_train_augmentation()),
 
 
     }
@@ -169,7 +206,9 @@ run = wandb.init(
 )
 #DIRECTORIES
 image_dirs_val = ["/home/mdezen/distillation/MICCAI/instrument_1_4_training/instrument_dataset_4/left_frames"]
-mask_dirs_val = ["/home/mdezen/distillation/MICCAI/instrument_1_4_training/instrument_dataset_4/ground_truth/Large_Needle_Driver_Left_labels"]
+mask_dirs_val = ["/home/mdezen/distillation/MICCAI/instrument_1_4_training/instrument_dataset_4/ground_truth/Large_Needle_Driver_Left_labels",
+                 "/home/mdezen/distillation/MICCAI/instrument_1_4_training/instrument_dataset_4/ground_truth/Large_Needle_Driver_Right_labels",
+                 "/home/mdezen/distillation/MICCAI/instrument_1_4_training/instrument_dataset_4/ground_truth/Prograsp_Forceps_labels",]
 
 image_dirs_train = [
     "/home/mdezen/distillation/MICCAI/instrument_1_4_training/test",
@@ -215,13 +254,13 @@ mask_dirs_train = [
 
 
 
-datasetVal = ImageMaskDataset(image_dirs=image_dirs_val,mask_dirs=mask_dirs_val,transform=image_transform,mask_transform=mask_transform)
+datasetVal = ImageMaskDataset(image_dirs=image_dirs_val,mask_dirs=mask_dirs_val,transform=validation_transform,mask_transform=mask_validation_transform,increase=False)
 dataloaderVal = DataLoader(datasetVal,batch_size=batch_size,shuffle=True)
 
 dataset_cholec = CholecDataset(filtered_ds, transform=image_transform, mask_transform=mask_transform)
-datasetMiccai = ImageMaskDataset(image_dirs=image_dirs_train,mask_dirs=mask_dirs_train,transform=image_transform,mask_transform=mask_transform,increase=True)
+datasetMiccai = ImageMaskDataset(image_dirs=image_dirs_train,mask_dirs=mask_dirs_train,transform=image_transform,mask_transform=mask_transform,increase=False)
 
-#dataset_finale = ConcatDataset([dataset_cholec, datasetMiccai])
+dataset_finale = ConcatDataset([dataset_cholec, datasetMiccai])
 
 dataloader = DataLoader(datasetMiccai,batch_size=batch_size,shuffle=True,pin_memory=True)
 for images, masks in dataloader:
@@ -230,7 +269,7 @@ for images, masks in dataloader:
     break
 
 #TRAINING
-patience = 10  # Number of epochs to wait for improvement
+patience = 5  # Number of epochs to wait for improvement
 best_val_loss = float('inf')
 epochs_no_improve = 0
 checkpoint_path = "checkpoints/21_05/" + name+".pth"

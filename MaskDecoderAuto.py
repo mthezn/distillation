@@ -45,8 +45,10 @@ class MaskDecoderAuto(nn.Module):
         self.output_upscaling = nn.Sequential(
             nn.ConvTranspose2d(transformer_dim, transformer_dim // 4, kernel_size=2, stride=2),
             LayerNorm2d(transformer_dim // 4),
+            nn.Dropout2d(0.1),  # <--- Aggiunto
             activation(),
             nn.ConvTranspose2d(transformer_dim // 4, transformer_dim // 8, kernel_size=2, stride=2),
+            nn.Dropout2d(0.1),  # <--- Aggiunto
             activation(),
         )
         self.output_hypernetworks_mlps = nn.ModuleList(
