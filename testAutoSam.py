@@ -154,7 +154,7 @@ dataloaderTest = DataLoader(datasetTest, batch_size=2, shuffle=True)
 
 # CARICO UN MODELLO SAM
 # sam_checkpoint = "C:/Users/User/OneDrive - Politecnico di Milano/Documenti/POLIMI/Tesi/distillation/checkpoints/sam_vit_b_01ec64.pth"
-autosam_checkpoint = "checkpoints/21_05/autoSam6wzDE.pth"
+autosam_checkpoint = "checkpoints/21_05/autoSam1XkFE.pth"
 model_type = "autoSam"
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -236,7 +236,7 @@ for images, labels in dataloaderTest:  # i->batch index, images->batch of images
         image = (image_to_show * 0.5 + 0.5) * 255
         image = image.astype(np.uint8)
         plt.imshow(image)
-        
+
 
 
 

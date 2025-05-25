@@ -483,8 +483,9 @@ def train_one_epoch_auto(model,student,
             #low_res_stud = student.mask_decoder(image_embeddings)
             low_res_stud = student.postprocess_masks(low_res_stud, (1024, 1024), (1024, 1024))
             mask = low_res_stud > student.mask_threshold
-            #iou = calculate_iou(mask, maskunion)
-            #print("iou", iou)
+            iou = calculate_iou(mask, maskunion)
+
+            print("iou", iou)
 
                 #maskunion_stud = torch.zeros((1, 1, 1024, 1024)).to(device)
             for i in range(low_res_stud.shape[0]):
@@ -505,7 +506,7 @@ def train_one_epoch_auto(model,student,
 
 
         with torch.amp.autocast(device_type="cuda"):
-            loss = criterion(results_stud, results_teach)
+            loss = criterion(results_stud, target)
             #print("loss", loss)
 
         if torch.isfinite(loss):
@@ -820,6 +821,9 @@ def validate_one_epoch_auto(
                 union_logits = torch.full_like(logits_teach[0], float('-inf'))
                 for logits in logits_teach:
                     union_logits = torch.maximum(union_logits, logits)
+
+                iou = calculate_iou(maskunion_teach, union_logits.detach().cpu().numpy()>0)
+                print("iou", iou)
                 results_teach.append(union_logits)
 
                 image_embeddings = student.image_encoder(image)
@@ -850,7 +854,7 @@ def validate_one_epoch_auto(
             results_stud = torch.stack(results_stud).to(device)
 
 
-            loss = criterion(results_stud, results_teach)
+            loss = criterion(results_stud, target)
 
 
 

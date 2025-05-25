@@ -142,7 +142,7 @@ optimizer = create_optimizer_v2(student,**optimizer_cfg)
 loss_scaler = NativeScaler()
 
 
-criterion = nn.MSELoss()
+criterion = nn.BCEWithLogitsLoss()
 epochs = 30
 
 
@@ -194,7 +194,7 @@ run = wandb.init(
         "architecture": "CMT/autoSam",
         "dataset": "Miccai",
         "epochs": epochs,
-        "criterion": "MSE",
+        "criterion": "BCEWithLogitsLoss",
         "batch_size": batch_size,
         "optimizer": optimizer_cfg['opt'],
         "weight_decay": optimizer_cfg['weight_decay'],
