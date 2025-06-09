@@ -128,7 +128,7 @@ def dice_loss(student_masks, teacher_masks):
 
 
 def iou_loss(student_masks, teacher_masks, eps=1e-6):
-    student_probs = torch.sigmoid(student_masks)  # Se sono logits
+    #student_probs = torch.sigmoid(student_masks)  # Se sono logits
     if teacher_masks.ndim == 3:
         teacher_masks = teacher_masks.unsqueeze(1)  # [N, 1, H, W]
 
@@ -136,7 +136,7 @@ def iou_loss(student_masks, teacher_masks, eps=1e-6):
 
     N = teacher_masks.shape[0]
     for i in range(N):
-        s = student_probs[i]  # [1, H, W]
+        s = student_masks[i]  # [1, H, W]
         t = teacher_masks[i]  # [1, H, W]
 
         intersection = (s * t).sum(dim=(1, 2))  # somma su H, W

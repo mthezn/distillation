@@ -8,6 +8,8 @@ from matplotlib import pyplot as plt
 import numpy as np
 import time
 import cv2
+import albumentations as A
+from albumentations.pytorch import ToTensorV2
 from datasets import load_dataset
 
 from Dataser import ImageMaskDataset,CholecDataset
@@ -207,19 +209,21 @@ def predict_points_boxes(predictor,boxes,centroids,input_label):
 
 image_dirs_val = ["MICCAI/instrument_1_4_testing/instrument_dataset_4/left_frames"]
 mask_dirs_val = ["MICCAI/instrument_2017_test/instrument_2017_test/instrument_dataset_4/BinarySegmentation"]
-image_transform = transforms.Compose([
-    transforms.Resize((1024,1024)),
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.5,0.5,0.5],std = [0.5,0.5,0.5])
 
 
-
+image_transform = A.Compose([
+    A.Resize(1024, 1024),
+    #A.HorizontalFlip(p=0.5),
+    #A.VerticalFlip(p=0.5),
+    #A.Rotate(limit=45, p=0.5),
+    #A.ColorJitter(p=0.3, contrast=0.3, saturation=0.3, hue=0.1),
+    #A.GaussianBlur(blur_limit=(3, 7), p=0.3),
+    A.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
+    ToTensorV2()
 ])
-mask_transform  = transforms.Compose([
 
-    transforms.Resize((1024,1024)),
-    transforms.ToTensor()
-])
+
+
 def contains_instrument(example):
     mask = np.array(example["color_mask"])  # o "segmentation" se diverso
     return np.any((mask == 169) | (mask == 170))
@@ -227,7 +231,7 @@ def contains_instrument(example):
 #datasetCholec = load_dataset("minwoosun/CholecSeg8k", trust_remote_code=True)
 
 #filtered_ds = datasetCholec['train'].filter(contains_instrument)
-datasetTest = ImageMaskDataset(image_dirs=image_dirs_val,mask_dirs=mask_dirs_val,transform=image_transform,mask_transform=mask_transform)
+datasetTest = ImageMaskDataset(image_dirs=image_dirs_val,mask_dirs=mask_dirs_val,transform=image_transform)
 #datasetTest = CholecDataset(hf_dataset=filtered_ds, transform=image_transform, mask_transform=mask_transform)
 dataloaderTest = DataLoader(datasetTest,batch_size=2,shuffle=True)
 
@@ -235,9 +239,11 @@ student_checkpoint = "checkpoints/13_05/decoupledVitBDGfFE.pth"
 state_dict = torch.load(student_checkpoint, map_location=torch.device('cpu'))
 model = sam_model_registry["CMT"](checkpoint=None)
 model.load_state_dict(state_dict)
-print("Missing keys:", model.load_state_dict(state_dict, strict=False))
+
+#print("Missing keys:", model.load_state_dict(state_dict, strict=False))
 #CARICO UN MODELLO SAM
 #sam_checkpoint = "C:/Users/User/OneDrive - Politecnico di Milano/Documenti/POLIMI/Tesi/distillation/checkpoints/sam_vit_b_01ec64.pth"
+
 sam_checkpoint = "checkpoints/sam_vit_b_01ec64.pth"
 model_type = "vit_b"
 

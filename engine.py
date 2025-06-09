@@ -2,10 +2,12 @@
 Train and eval functions used in main.py
 """
 import math
+import random
 import sys
 from typing import Iterable, Optional
 
 from PIL.ImageChops import logical_or
+from PIL.ImagePalette import random
 from tqdm import tqdm
 import torch
 import cv2
@@ -13,11 +15,11 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 from torch.cuda.amp import GradScaler, autocast
-
-
+import os
+from PIL import Image
 from timm.data import Mixup
 from timm.utils import accuracy, ModelEma
-
+import random
 from losses import DistillationLoss
 import utils
 from repvit_sam import SamPredictor
@@ -36,6 +38,30 @@ def custom_print(*args, **kwargs):
 
 builtins.print = custom_print
 """
+
+def save_binary_mask(mask_tensor, epoch, batch_idx, output_dir="binary_masks"):
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Convert to numpy array
+    if isinstance(mask_tensor, torch.Tensor):
+        mask_np = mask_tensor.detach().cpu().numpy()
+    else:
+        mask_np = mask_tensor
+
+    # Ensure shape
+    if mask_np.ndim == 4:
+        mask_np = mask_np[0, 0]
+    elif mask_np.ndim == 3:
+        mask_np = mask_np[0]
+
+    # Ensure binary uint8 image
+    mask_np = (mask_np > 0).astype(np.uint8) * 255
+
+    # Save
+    Image.fromarray(mask_np).save(
+        os.path.join(output_dir, f"mask_epoch{epoch}_batch{batch_idx}.png")
+    )
+
 def calculate_iou(mask_pred, mask_gt):
     # Ensure the inputs are NumPy arrays
     if isinstance(mask_pred, torch.Tensor):
@@ -58,8 +84,12 @@ def set_bn_state(model):
         if isinstance(m, torch.nn.modules.batchnorm._BatchNorm):
             m.eval()
 
-def predict_boxes(predictor, boxes):
-
+def predict_boxes(predictor,image, boxes):
+    image_array = (image[0].detach().cpu().numpy())
+    image_array = np.transpose(image_array, (1, 2, 0))
+    image = (image_array * 0.5 + 0.5) * 255
+    image = image.astype(np.uint8)  # Normalizza l'immagine per visualizzazione
+    predictor.set_image(image)
 
     masks, _, low_res = predictor.predict_torch(
         # predict_torch serve quando ho le bboxes altrimenti predictor.predict
@@ -121,7 +151,9 @@ def predict_points_boxes(predictor,image,boxes,centroids,input_label):
     all_low_res = []
     image_array =(image[0].detach().cpu().numpy())
     image_array = np.transpose(image_array, (1, 2, 0))
-    predictor.set_image(image_array)
+    image = (image_array*0.5 + 0.5 )*255
+    image = image.astype(np.uint8)# Normalizza l'immagine per visualizzazione
+    predictor.set_image(image)
     model_device = next(predictor.model.parameters()).device  # Assicura coerenza col modello
 
     for i in range(boxes.shape[0]):
@@ -391,8 +423,13 @@ def train_one_epoch_auto(model,student,
         for image, label in zip(images, labels):
             # Convert the mask to a binary mask
             label = label.detach().cpu().numpy()
-            label = label[0]
+
+
+
+            save_binary_mask(label.squeeze(), random.randint(0, 10), 1, output_dir="gt")
+
             label = (label > 0).astype(np.uint8)
+
 
 
             image_array = image.cpu().numpy()
@@ -400,7 +437,7 @@ def train_one_epoch_auto(model,student,
             # print(image.shape)
 
             # Create contours from the gt
-            contours, _ = cv2.findContours(label, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            contours, _ = cv2.findContours(label.squeeze(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             contours = sorted(contours, key=cv2.contourArea, reverse=True)[:2]
 
 
@@ -417,8 +454,8 @@ def train_one_epoch_auto(model,student,
                         input_label.append(1)
                         x, y, w, h = cv2.boundingRect(countour)
                         bbox.append([x, y, x + w, y + h])
-                centroids = np.array(centroids)
-            # print(centroids)
+            centroids = np.array(centroids)
+            #print(centroids)
             bbox = torch.tensor(bbox).float()
             centroids = torch.tensor(centroids).float().unsqueeze(0)
 
@@ -434,8 +471,7 @@ def train_one_epoch_auto(model,student,
 
             #image_embedding_model = model.image_encoder(image)  # in teoria posso passare n batch di immagini
 
-            masks_model, _, low_res = predict_points_boxes(predictor,image, bbox, centroids,
-                                                           input_label) #masks_model -> binary masks, low_res -> logits
+            masks_model, _, low_res = predict_points_boxes(predictor,image,bbox,centroids,input_label) #masks_model -> binary masks, low_res -> logits
 
             low_res = model.postprocess_masks(low_res, (1024, 1024), (1024, 1024))
             unique, value = np.unique(low_res.detach().cpu().numpy(), return_index=True)
@@ -445,15 +481,21 @@ def train_one_epoch_auto(model,student,
 
             logits_list = []
             maskunion = torch.zeros((1, 1024, 1024)).to(device)
+
             for i in range(low_res.shape[0]):
-                    mask = masks_model[i].float()  # ricordarsi .foat con Bcelogits
+                    mask = masks_model[i]  # ricordarsi .foat con Bcelogits
+                    unique, values = np.unique(mask.cpu().numpy(), return_counts=True)
+                    #print("unique", unique)
+                    #print("values", values)
+                    n = random.randint(0, 100)
+                    #save_binary_mask(mask,  n, i,output_dir="binary_masks_teacher")
 
                     maskunion = torch.logical_or(maskunion, mask)
 
 
                     logits_list.append(low_res[i]) #devo unire in unica maschera il risultato perche il mio modello teacher produce tante maschere qunati gli strumenti invece il mio modello produce una maschera per immagine
 
-
+            #save_binary_mask(maskunion, 3000, i, output_dir="binary_masks_teacher")
             #creo un unica maschera di logits
             union_logits = torch.full_like(logits_list[0], float('-inf'))
             for logits in logits_list:
@@ -463,7 +505,7 @@ def train_one_epoch_auto(model,student,
 
 
 
-            results_teach.append(union_logits)
+            results_teach.append(maskunion)
 
 
             image_embeddings = student.image_encoder(image)  # -> dict con "image_embed"
@@ -485,14 +527,21 @@ def train_one_epoch_auto(model,student,
             mask = low_res_stud > student.mask_threshold
             iou = calculate_iou(mask, maskunion)
 
-            print("iou", iou)
+            #print("Stud logits min:", low_res_stud.min().item(), "max:", low_res_stud.max().item())
+
+            if iou > 0.89:
+                save_binary_mask(low_res_stud.detach().cpu().numpy() >0 , epoch, random.randint(0,100), output_dir="binary_masks_train")
+                #save_binary_mask(maskunion, epoch, i, output_dir="binary_masks_teacher")
+                print(f"Saved binary mask for epoch {epoch}, batch {i}")
+
+            #print("iou", iou)
 
                 #maskunion_stud = torch.zeros((1, 1, 1024, 1024)).to(device)
             for i in range(low_res_stud.shape[0]):
                     low_res_stud_temp = low_res_stud[i].float()
                     #maskunion_stud = torch.max(maskunion_stud, mask.float())
 
-                    results_stud.append(low_res_stud_temp)
+                    results_stud.append(low_res_stud_temp )
 
 
         results_teach = torch.stack(results_teach).to(device)
@@ -505,8 +554,8 @@ def train_one_epoch_auto(model,student,
         #print("uniqueStud",unique)
 
 
-        with torch.amp.autocast(device_type="cuda"):
-            loss = criterion(results_stud, target)
+        #with torch.amp.autocast(device_type="cuda"):
+        loss = criterion(results_stud, results_teach.float())
             #print("loss", loss)
 
         if torch.isfinite(loss):
@@ -764,7 +813,7 @@ def validate_one_epoch_auto(
             for image, label in zip(images, labels):
                 # Convert the label to a binary mask
                 label = label.detach().cpu().numpy()
-                label = label[0]
+                #label = label[0]
                 label = (label > 0).astype(np.uint8)
 
 
@@ -772,7 +821,7 @@ def validate_one_epoch_auto(
                 image = image.unsqueeze(0)
                # print(image.shape)
 
-                contours, _ = cv2.findContours(label, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                contours, _ = cv2.findContours(label.squeeze(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
                 contours = sorted(contours, key=cv2.contourArea, reverse=True)[:2]
                 # print("contours",contours)
 
@@ -822,9 +871,13 @@ def validate_one_epoch_auto(
                 for logits in logits_teach:
                     union_logits = torch.maximum(union_logits, logits)
 
-                iou = calculate_iou(maskunion_teach, union_logits.detach().cpu().numpy()>0)
-                print("iou", iou)
-                results_teach.append(union_logits)
+                iou = calculate_iou(maskunion_teach, low_res.detach().cpu().numpy()>0)
+                #print("iou", iou)
+                if iou > 0.9:
+                    save_binary_mask((low_res.detach().cpu().numpy() > 0), epoch, random.randint(0,100), output_dir="binary_masks_validation")
+
+                    print(f"Saved binary mask for epoch {epoch}, batch {i}")
+                results_teach.append(maskunion_teach)
 
                 image_embeddings = student.image_encoder(image)
 
@@ -844,7 +897,7 @@ def validate_one_epoch_auto(
 
                 for i in range(low_res_stud.shape[0]):
                     low_res_temp = low_res_stud[i].float()
-                    results_stud.append(low_res_temp)
+                    results_stud.append(low_res_temp )
 
 
 
@@ -854,7 +907,7 @@ def validate_one_epoch_auto(
             results_stud = torch.stack(results_stud).to(device)
 
 
-            loss = criterion(results_stud, target)
+            loss = criterion(results_stud, results_teach.float())
 
 
 

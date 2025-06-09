@@ -120,7 +120,8 @@ def refining(mask):
 
 image_dirs_val = ["MICCAI/instrument_1_4_testing/instrument_dataset_4/left_frames"]
 mask_dirs_val = ["MICCAI/instrument_2017_test/instrument_2017_test/instrument_dataset_4/gt/BinarySegmentation"]
-
+#image_dirs_val = ["MICCAI/instrument_1_4_training/instrument_dataset_4/left_frames"]
+#mask_dirs_val = ["MICCAI/instrument_1_4_training/instrument_dataset_4/ground_truth/Large_Needle_Driver_Left_labels"]
 image_dirs_train = [
 
     "MICCAI/instrument_1_4_training/instrument_dataset_1/left_frames",
@@ -142,9 +143,9 @@ def contains_instrument(example):
     return np.any((mask == 169) | (mask == 170))
 
 
-datasetCholec = load_dataset("minwoosun/CholecSeg8k", trust_remote_code=True)
+#datasetCholec = load_dataset("minwoosun/CholecSeg8k", trust_remote_code=True)
 
-filtered_ds = datasetCholec['train'].filter(contains_instrument)
+#filtered_ds = datasetCholec['train'].filter(contains_instrument)
 datasetTest = ImageMaskDataset(image_dirs=image_dirs_val, mask_dirs=mask_dirs_val, transform=validation_transform,
                                )
 #datasetTest = CholecDataset(hf_dataset=filtered_ds, transform=validation_transform)
@@ -153,14 +154,13 @@ dataloaderTest = DataLoader(datasetTest, batch_size=2, shuffle=True)
 
 # CARICO UN MODELLO SAM
 # sam_checkpoint = "C:/Users/User/OneDrive - Politecnico di Milano/Documenti/POLIMI/Tesi/distillation/checkpoints/sam_vit_b_01ec64.pth"
-autosam_checkpoint = "checkpoints/26_05/autoSamocWKh.pth"
+autosam_checkpoint = "checkpoints/26_05/autoSamKlnmJ.pth"
 model_type = "autoSam"
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-model = sam_model_registry[model_type](checkpoint=None)
-state_dict = torch.load(autosam_checkpoint, map_location=torch.device('cpu'))
-model.load_state_dict(state_dict, strict=False)  # Load the state dict into the model
+model = sam_model_registry[model_type](checkpoint=autosam_checkpoint)
+
 model.to(device=device)
 
 
@@ -180,7 +180,7 @@ for images, labels in dataloaderTest:  # i->batch index, images->batch of images
     results_stud = []
     for image, label in zip(images, labels):
         # Convert the mask to a binary mask
-        label = np.array(label.cpu())
+        label = label.detach().cpu().numpy()
         label = (label > 0).astype(np.uint8)
         # print("label",label)
         print(label.shape)
@@ -188,18 +188,16 @@ for images, labels in dataloaderTest:  # i->batch index, images->batch of images
         print("unique", unique)
         print("values", values)
 
-        image = torch.Tensor(image.cpu())
+        image = image.to(device = device).float()
 
         # Assicurati che sia float e abbia batch dimensione
-        image = image.float()  # converti in float32 se necessario
+        # converti in float32 se necessario
      # manca batch dimensione
         image = image.unsqueeze(0)
 
             # Convert to binary mask
         # label = (label > 0).astype(np.uint8)
-        plt.figure(figsize=(10, 10))
-        plt.imshow(label.squeeze(), cmap='gray') #con label *255 funziona perche non l iinterpreta forse come bianri ma come valori di intensita quindi 1 è molto picolo
-        plt.axis('off')
+
         start_time = time.time()
         image_embedding = model.image_encoder(image)
         low_res, _ = model.mask_decoder(
@@ -214,36 +212,22 @@ for images, labels in dataloaderTest:  # i->batch index, images->batch of images
         mask = mask.cpu().numpy()
 
 
-        values, counts = np.unique(low_res.detach().numpy(), return_counts=True)
+        values, counts = np.unique(low_res.detach().cpu().numpy(), return_counts=True)
         print("unique", values)
         print("values", counts)
         # Visualizza la maschera raw
-        plt.figure(figsize=(8, 8))
-        plt.imshow(low_res.detach().cpu().numpy().squeeze(), cmap='gray')  # Display in grayscale
-        plt.colorbar(label='Logits')  # Add a colorbar with a label
-        plt.title('Low Resolution Logits')
-        plt.axis('off')  # Remove axes for better visualization
-        plt.show()
+
 
         # Applica soglia
         binary_mask = (low_res > 0)
 
-        # Visualizza maschera sogliata
-        plt.imshow(binary_mask.squeeze(), cmap='gray')
-        plt.title('Thresholded mask (>0.5)')
-        plt.show()
 
-        plt.figure(figsize=(10, 10))
-        image_to_show = image[0].permute(1, 2, 0).cpu().numpy()
-        image = (image_to_show * 0.5 + 0.5) * 255
-        image = image.astype(np.uint8)
-        plt.imshow(image)
 
 
 
 
         mask = refining(mask)
-        show_mask(mask, plt.gca(), random_color=True)
+
         values, counts = np.unique(mask, return_counts=True)  # mask.cpu().numpy()
         #print("unique", values)
         #print("counts", counts)
@@ -257,6 +241,6 @@ for images, labels in dataloaderTest:  # i->batch index, images->batch of images
         iou = calculate_iou(mask, label)
 
         timeDf.loc[len(timeDf)] = [latency, len(timeDf), iou]
-timeDf.to_csv('RISULTATI AUTOSAM/TimeDfBBoxAutoSam.csv', index=False)
+timeDf.to_csv('RISULTATI/TimeDfBBoxAutoSam.csv', index=False)
 print(timeDf)
 
