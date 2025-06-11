@@ -2,22 +2,17 @@
 
 import pandas as pd
 
-from Dataser import ImageMaskDataset
-from repvit_sam import SamPredictor, sam_model_registry
-import copy
+from repvit_sam import SamPredictor
 from matplotlib import pyplot as plt
 import numpy as np
 import time
 import cv2
 
-from Dataser import ImageMaskDataset
+from Dataset import ImageMaskDataset
 import torch
 from torch.utils.data import DataLoader
 from torchvision import transforms
-from build_CMT_sam import sam_model_registry
-import torch.nn.functional as F
-
-from PIL import Image
+from modeling.build_sam import sam_model_registry
 
 image_dirs_val = ["MICCAI/instrument_1_4_testing/instrument_dataset_4/left_frames"]
 mask_dirs_val = ["MICCAI/instrument_2017_test/instrument_2017_test/instrument_dataset_4/BinarySegmentation"]

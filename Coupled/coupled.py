@@ -1,38 +1,23 @@
-
-import pandas as pd
 from torch.utils.data import DataLoader
 import wandb
 import random
-from losses import DistillationLoss
-from losses import distillation_loss,dice_loss,iou_loss
-from model import CMT_Ti
-from build_CMT_sam import sam_model_registry
+from losses import distillation_loss
+from modeling.build_sam import sam_model_registry
 from repvit_sam import SamPredictor
-from Dataser import ImageMaskDataset
-from torch.cuda.amp import GradScaler, autocast
-from repvit_sam.build_sam import build_sam_repvit
-from utils import *
+from Dataset import ImageMaskDataset
 from matplotlib import pyplot as plt
-import torch.nn.functional as F
-
 
 import numpy as np
-import time
 import torch.nn as nn
 from torchvision   import transforms
 import utils
 from engine import validate_one_epoch_coupled, train_one_epoch_coupled
 import cv2
-import timm.layers
 
-import timm.optim
-from timm.loss import LabelSmoothingCrossEntropy
-from timm.optim import create_optimizer, create_optimizer_v2
-from timm.scheduler import create_scheduler
-from timm.utils import NativeScaler,get_state_dict,ModelEma
+from timm.optim import create_optimizer_v2
+from timm.utils import NativeScaler
 import torch
 import string
-from timm.models import create_model
 from PIL import Image
 import gc
 
@@ -240,8 +225,8 @@ state_dict = torch.load(checkpoint_path, map_location=device)
 predictor = SamPredictor(model)
 
 # ----- CARICAMENTO IMMAGINE -----
-image_path = "MICCAI/instrument_1_4_testing/instrument_dataset_1/left_frames/frame225.png"
-mask_path = "MICCAI/instrument_2017_test/instrument_2017_test/instrument_dataset_1/BinarySegmentation/frame225.png"
+image_path = "../MICCAI/instrument_1_4_testing/instrument_dataset_1/left_frames/frame225.png"
+mask_path = "../MICCAI/instrument_2017_test/instrument_2017_test/instrument_dataset_1/BinarySegmentation/frame225.png"
 
 image_transform = transforms.Compose([
     transforms.Resize((1024, 1024)),

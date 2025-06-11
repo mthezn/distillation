@@ -1,45 +1,20 @@
 """
-Train and eval functions used in main.py
+Train and eval functions used in mainDecoupled.py
 """
-import math
-import sys
-from typing import Iterable, Optional
 
-from PIL.ImageChops import logical_or
-from tqdm import tqdm
-import torch
-import cv2
-
-import numpy as np
-import matplotlib.pyplot as plt
-from torch.cuda.amp import GradScaler, autocast
 import os
-from PIL import Image
-from timm.data import Mixup
-from timm.utils import accuracy, ModelEma
 
-from losses import DistillationLoss
-import utils
 from repvit_sam import SamPredictor
-import pandas as pd
-from torch.utils.checkpoint import checkpoint
-
-from Dataser import ImageMaskDataset
-from repvit_sam import SamPredictor, sam_model_registry
-import copy
 from matplotlib import pyplot as plt
 import numpy as np
 import time
 import cv2
-from datasets import load_dataset
 
-from Dataser import ImageMaskDataset,CholecDataset
+from Dataset import ImageMaskDataset
 import torch
 from torch.utils.data import DataLoader
 from torchvision import transforms
-from build_CMT_sam import sam_model_registry
-import torch.nn.functional as F
-from datasets import load_dataset_builder
+from modeling.build_sam import sam_model_registry
 from PIL import Image
 
 

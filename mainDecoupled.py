@@ -1,50 +1,29 @@
-
-import pandas as pd
 from torch.utils.data import DataLoader
-from Dataser import CholecDataset
-from losses import DistillationLoss
-from model import CMT_Ti
-from build_CMT_sam import sam_model_registry
+from Dataset import CholecDataset
+from modeling.build_sam import sam_model_registry
 from repvit_sam import SamPredictor
-from Dataser import ImageMaskDataset
-from torch.cuda.amp import GradScaler, autocast
-from repvit_sam.build_sam import build_sam_repvit
+from Dataset import ImageMaskDataset
 from utils import *
 import wandb
-from matplotlib import pyplot as plt
 import numpy as np
-import time
 import torch.nn as nn
-from torchvision   import transforms
 import utils
-from engine import train_one_epoch, evaluate, validate_one_epoch
-import cv2
-import timm.layers
-from torch.utils.data import ConcatDataset
+import albumentations as A
+from albumentations.pytorch import ToTensorV2
 
-import timm.optim
-from timm.loss import LabelSmoothingCrossEntropy
-from timm.optim import create_optimizer, create_optimizer_v2
-from timm.scheduler import create_scheduler
-from timm.utils import NativeScaler,get_state_dict,ModelEma
+from engine import train_one_epoch, validate_one_epoch
+
+from timm.optim import create_optimizer_v2
+from timm.utils import NativeScaler
 import torch
-from timm.models import create_model
-from PIL import Image
 import gc
 from datasets import load_dataset
-import random
-import string
-def generate_random_name(length=8):
-    return ''.join(random.choices(string.ascii_letters + string.digits, k=length))
+from utility import generate_random_name, contains_instrument
 
 wandb.login(key='14497a5de45116d579bde37168ccf06f78c2928e')  # Replace 'your_api_key' with your actual API key
 name = "decoupledVitB"+generate_random_name(5)
 
 datasetCholec = load_dataset("minwoosun/CholecSeg8k", trust_remote_code=True)
-def contains_instrument(example):
-    mask = np.array(example["color_mask"])  # o "segmentation" se diverso
-    return np.any((mask == 169) | (mask == 170))
-
 filtered_ds = datasetCholec["train"].filter(contains_instrument)
 
 seed = 42
@@ -53,14 +32,7 @@ torch.manual_seed(seed)
 np.random.seed(seed)
 
 
-#sam = sam_model_registry["vit_b"](
-#   checkpoint="/home/mdezen/distillation/checkpoints/sam_vit_b_01ec64.pth")
-#predictor = SamPredictor(sam)
-#device = "cuda" if torch.cuda.is_available() else "cpu"
-#sam.to(device=device)
-#sam.eval( )
-
-#CARICO IL MODELLO REPVIT SAM
+#CARICO IL MODELLO SAM
 sam_checkpoint = "/home/mdezen/distillation/checkpoints/sam_vit_b_01ec64.pth"
 model_type = "vit_b"
 
@@ -71,7 +43,7 @@ sam.to(device=device)
 predictor = SamPredictor(sam)
 
 
-#carico i pesi del decoder e li assegno al modello, il decoder restera freezato e al limite fine tunnato
+
 #CREO UN MODELLO SAM CON ENCODER CMT
 model = sam_model_registry["CMT"]()
 model.to(device=device)
@@ -113,26 +85,22 @@ loss_scaler = NativeScaler()
 
 criterion = nn.MSELoss()
 epochs = 20
-image_transform = transforms.Compose([
-    transforms.Resize((1024,1024)),
-    transforms.RandomHorizontalFlip(p=0.5),
-    transforms.RandomVerticalFlip(p=0.5),
-    transforms.RandomRotation(degrees=15),
-    transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.2),
-    transforms.GaussianBlur(kernel_size=5, sigma=(0.1, 2.0)),
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.5,0.5,0.5],std = [0.5,0.5,0.5])
-
-
-
+train_transform = A.Compose([
+    A.Resize(1024, 1024),
+    A.HorizontalFlip(p=0.5),
+    A.VerticalFlip(p=0.5),
+    A.Rotate(limit=45, p=0.5),
+    #A.ColorJitter(p=0.3, contrast=0.3, saturation=0.3, hue=0.1),
+    #A.GaussianBlur(blur_limit=(3, 7), p=0.3),
+    A.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
+    ToTensorV2()
 ])
-mask_transform  = transforms.Compose([
 
-    transforms.Resize((1024,1024)),
-    transforms.RandomHorizontalFlip(p=0.5),  # Ensure the same flip as the image
-    transforms.RandomVerticalFlip(p=0.5),  # Ensure the same flip as the image
-    transforms.RandomRotation(degrees=15),
-    transforms.ToTensor()
+
+validation_transform = A.Compose([
+    A.Resize(1024, 1024),
+    A.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
+    ToTensorV2()
 ])
 run = wandb.init(
     # Set the wandb entity where your project will be logged (generally your team name).
@@ -150,7 +118,7 @@ run = wandb.init(
         "batch_size": batch_size,
         "optimizer": optimizer_cfg['opt'],
         "weight_decay": optimizer_cfg['weight_decay'],
-        "augmentation": str(image_transform),
+        "augmentation": str(train_transform),
 
 
     }
@@ -193,22 +161,15 @@ mask_dirs_train = [
     "/home/mdezen/distillation/MICCAI/instrument_5_8_training/instrument_dataset_8/ground_truth/Monopolar_Curved_Scissors_labels",
     "/home/mdezen/distillation/MICCAI/instrument_5_8_training/instrument_dataset_8/ground_truth/Right_Grasping_Retractor_labels",
 
-
-
-
-
-    #"/home/mdezen/distillation/MICCAI/instrument_1_4_training/testGT"
-
-
 ]
 
 
 
-datasetVal = ImageMaskDataset(image_dirs=image_dirs_val,mask_dirs=mask_dirs_val,transform=image_transform,mask_transform=mask_transform)
+datasetVal = ImageMaskDataset(image_dirs=image_dirs_val,mask_dirs=mask_dirs_val,transform=validation_transform)
 dataloaderVal = DataLoader(datasetVal,batch_size=batch_size,shuffle=True)
 
-dataset_cholec = CholecDataset(filtered_ds, transform=image_transform, mask_transform=mask_transform)
-datasetMiccai = ImageMaskDataset(image_dirs=image_dirs_train,mask_dirs=mask_dirs_train,transform=image_transform,mask_transform=mask_transform)
+dataset_cholec = CholecDataset(filtered_ds, transform=train_transform)
+datasetMiccai = ImageMaskDataset(image_dirs=image_dirs_train,mask_dirs=mask_dirs_train,transform=train_transform)
 
 #dataset_finale = ConcatDataset([dataset_cholec, datasetMiccai])
 
@@ -236,7 +197,7 @@ for epoch in range(0, epochs):
 
     torch.cuda.empty_cache()
     gc.collect()
-    #print(epoch)
+
     val_loss = validate_one_epoch(model.image_encoder,sam.image_encoder,dataloaderVal,criterion ,device,epoch,run)
     print(
         f"Epoch {epoch} loss: {val_loss}")

@@ -1,68 +1,25 @@
 import copy
 import albumentations as A
-import pandas as pd
-from sympy.stats.rv import sampling_E
-from torch.nn import BCEWithLogitsLoss
-from torch.utils.checkpoint import checkpoint
 from torch.utils.data import DataLoader
-from Dataser import CholecDataset
-from losses import DistillationLoss, distillation_loss, dice_loss, iou_loss
+from Dataset import CholecDataset
 
-from model import CMT_Ti
-from build_CMT_sam import sam_model_registry
-from repvit_sam import SamPredictor
-from Dataser import ImageMaskDataset
-from torch.cuda.amp import GradScaler, autocast
-from repvit_sam.build_sam import build_sam_repvit
+from modeling.build_sam import sam_model_registry
+from Dataset import ImageMaskDataset
 from utils import *
 from albumentations.pytorch import ToTensorV2
 import wandb
-from matplotlib import pyplot as plt
 import numpy as np
-import time
 import torch.nn as nn
-from torchvision   import transforms
-import utils
 from engine import train_one_epoch_auto, validate_one_epoch_auto
-import cv2
-import timm.layers
 from torch.utils.data import ConcatDataset
 
-import timm.optim
-from timm.loss import LabelSmoothingCrossEntropy
-from timm.optim import create_optimizer, create_optimizer_v2
-from timm.scheduler import create_scheduler
-from timm.utils import NativeScaler,get_state_dict,ModelEma
+from timm.optim import create_optimizer_v2
+from timm.utils import NativeScaler
 import torch
-from timm.models import create_model
-from PIL import Image
 import gc
 from datasets import load_dataset
-import random
-import string
-def generate_random_name(length=8):
-    return ''.join(random.choices(string.ascii_letters + string.digits, k=length))
+from utility import generate_random_name, contains_instrument
 
-def contains_instrument(example):
-    mask = np.array(example["color_mask"])  # o "segmentation" se diverso
-    return np.any((mask == 169) | (mask == 170))
-
-def get_train_augmentation(image_size=256):
-    return A.Compose([
-        A.RandomResizedCrop(size=(image_size, image_size), scale=(0.5, 1.0), p=1.0),
-        A.HorizontalFlip(p=0.5),
-        A.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.1, p=0.8),
-        A.GaussianBlur(p=0.3),
-        #A.ElasticTransform(alpha=120, sigma=120 * 0.05, alpha_affine=120 * 0.03, p=0.3),
-        A.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
-        ToTensorV2()
-    ])
-def get_val_augmentation(image_size=256):
-    return A.Compose([
-        A.Resize(image_size, image_size),
-        A.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
-        ToTensorV2()
-    ])
 ############################################################################################################
 
 
@@ -85,7 +42,7 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 
 
 
-#CREO UN MODELLO SAM CON ENCODER CMT CHE USERO  COME TEACHER FREEZANDO IL DECODER
+#CREO UN MODELLO CON ENCODER CMT CHE USERO  COME TEACHER, DISTILLATO DA UN SAM
 
 
 teacher_checkpoint = "checkpoints/13_05/decoupledVitBDGfFE.pth"
@@ -93,18 +50,13 @@ teacher_checkpoint = "checkpoints/13_05/decoupledVitBDGfFE.pth"
 device = "cuda" if torch.cuda.is_available() else "cpu"
 sam_checkpoint = "checkpoints/sam_vit_b_01ec64.pth"
 sam= sam_model_registry["vit_b"](checkpoint=sam_checkpoint).to(device=device)
-print(device)
+
 
 model = sam_model_registry["CMT"](checkpoint=None)
 model.load_state_dict(torch.load(teacher_checkpoint, map_location=device), strict=False)  # Load the state dict into the model
 
 
 model.to(device=device)
-
-#model.mask_decoder = copy.deepcopy(sam.mask_decoder)
-#model.mask_decoder.load_state_dict(sam.mask_decoder.state_dict(), strict=False)  # Load the state dict into the model
-#model.prompt_encoder = copy.deepcopy(sam.prompt_encoder)
-#model.prompt_encoder.load_state_dict(sam.prompt_encoder.state_dict(), strict=False)  # Load the state dict into the model
 sam.image_encoder = (model.image_encoder)  # Clone the image encoder
 
 
@@ -112,7 +64,7 @@ sam.image_encoder = (model.image_encoder)  # Clone the image encoder
 sam.eval()
 
 
-# CONGELO TUTTO E SBLOCCO SOLO L'ENCODER
+# CONGELO TUTTO
 for param in sam.parameters():
     param.requires_grad = False
 for param in sam.mask_decoder.parameters():
@@ -137,7 +89,7 @@ for param in student.mask_decoder.parameters():
 batch_size = 4
 lr = 0.0001
 
-print("caricato tutto")
+
 optimizer_cfg = {
     'opt': 'adamw',
     'lr': lr,
@@ -147,7 +99,7 @@ optimizer = create_optimizer_v2(student,**optimizer_cfg)
 loss_scaler = NativeScaler()
 scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer,mode = 'min',factor = 0.1,patience = 3,threshold=0.000001)
 
-criterion = iou_loss
+criterion = nn.MSELoss()
 epochs = 30
 
 
@@ -239,9 +191,6 @@ mask_dirs_train = [
 
 
 ]
-
-image_test = ["MICCAI/test/frame"]
-mask_test = ["MICCAI/test/gt"]
 
 datasetVal = ImageMaskDataset(image_dirs=image_dirs_val,mask_dirs=mask_dirs_val,transform=validation_transform,increase=False)
 dataloaderVal = DataLoader(datasetVal,batch_size=batch_size,shuffle=True)

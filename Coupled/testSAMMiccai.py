@@ -1,43 +1,34 @@
-import math
-import sys
-from typing import Iterable, Optional
-from tqdm import tqdm
-import torch
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
-from Dataser import ImageMaskDataset
+from Dataset import ImageMaskDataset
 import torch
+import albumentations as A
+from albumentations.pytorch import ToTensorV2
 from torch.utils.data import DataLoader
 from torchvision import transforms
-from build_CMT_sam import sam_model_registry
-from PIL import Image
+from modeling.build_sam import sam_model_registry
 from repvit_sam import SamPredictor
 import pandas as pd
-from torch.cuda.amp import GradScaler, autocast
 
-
-from timm.data import Mixup
-from timm.utils import accuracy, ModelEma
-
-from losses import DistillationLoss
-import utils
-image_dirs_val = ["MICCAI/instrument_1_4_testing/instrument_dataset_1/left_frames"]
-mask_dirs_val = ["MICCAI/instrument_2017_test/instrument_2017_test/instrument_dataset_1/BinarySegmentation"]
-image_transform = transforms.Compose([
-    transforms.Resize((1024,1024)),
-    transforms.ToTensor(),
-    #transforms.Normalize(mean=[0.5,0.5,0.5],std = [0.5,0.5,0.5])
-
-
-
+image_dirs_val = ["MICCAI/instrument_1_4_testing/instrument_dataset_4/left_frames"]
+mask_dirs_val = ["MICCAI/instrument_2017_test/instrument_2017_test/instrument_dataset_4/gt/BinarySegmentation"]
+image_transform = A.Compose([
+    A.Resize(1024, 1024),
+    #A.HorizontalFlip(p=0.5),
+    #A.VerticalFlip(p=0.5),
+    #A.Rotate(limit=45, p=0.5),
+    #A.ColorJitter(p=0.3, contrast=0.3, saturation=0.3, hue=0.1),
+    #A.GaussianBlur(blur_limit=(3, 7), p=0.3),
+    A.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
+    ToTensorV2()
 ])
 mask_transform  = transforms.Compose([
 
     transforms.Resize((1024,1024)),
     transforms.ToTensor()
 ])
-datasetTest = ImageMaskDataset(image_dirs=image_dirs_val,mask_dirs=mask_dirs_val,transform=image_transform,mask_transform=mask_transform)
+datasetTest = ImageMaskDataset(image_dirs=image_dirs_val,mask_dirs=mask_dirs_val,transform=image_transform)
 dataloaderTest = DataLoader(datasetTest,batch_size=2,shuffle=True)
 def display_image(dataset, image_index):
     '''Display the image and corresponding three masks.'''
@@ -109,8 +100,8 @@ def show_box(box, ax):
 
 
 
-sam_checkpoint = "C:/Users/User/OneDrive - Politecnico di Milano/Documenti/POLIMI/Tesi/EdgeSAM/RepViT/sam/weights/repvit_sam.pt"
-model_type = "repvit"
+sam_checkpoint = "checkpoints/sam_vit_h_4b8939.pth"  # Path to the SAM model checkpoint
+model_type = "vit_h"
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -144,7 +135,7 @@ for images, labels in dataloaderTest:  # i->batch index, images->batch of images
             label = (label > 0).astype(np.uint8)
             # Convert to binary mask
             contours, _ = cv2.findContours(label, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            contours = sorted(contours, key=cv2.contourArea, reverse=True)[:2]
+            contours = sorted(contours, key=cv2.contourArea, reverse=True)[:5]
             # print("contours",contours)
 
             centroids = []

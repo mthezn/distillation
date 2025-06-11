@@ -9,8 +9,11 @@ from repvit_sam.modeling.tiny_vit_sam import TinyViT
 from repvit_sam.modeling.image_encoder import ImageEncoderViT
 from repvit_sam.modeling.mask_decoder import MaskDecoder
 from repvit_sam.modeling.prompt_encoder import PromptEncoder
-from MaskDecoderAuto import MaskDecoderAuto
-from UnetDecoder import UnetDecoder
+from DecoderAutoSam.MaskDecoderAuto import MaskDecoderAuto
+from DecoderAutoSam.UnetDecoder import UnetDecoder
+
+
+
 class AutoSam(nn.Module):
     mask_threshold: float = 0.0
     image_format: str = "RGB"
@@ -26,14 +29,15 @@ class AutoSam(nn.Module):
         pixel_std: List[float] = [58.395, 57.12, 57.375],
     ) -> None:
         """
-        SAM predicts object masks from an image and input prompts.
+        AutoSAM predicts object masks from an image without any input prompt.
 
         Arguments:
           image_encoder (ImageEncoderViT): The backbone used to encode the
             image into image embeddings that allow for efficient mask prediction.
 
+            prompt_encoder (PromptEncoder): Encodes dimension of the image as prompts.
           mask_decoder (MaskDecoder): Predicts masks from the image embeddings
-            and encoded prompts.
+            .
           pixel_mean (list(float)): Mean values for normalizing pixels in the input image.
           pixel_std (list(float)): Std values for normalizing pixels in the input image.
         """
@@ -57,8 +61,7 @@ class AutoSam(nn.Module):
     ) -> List[Dict[str, torch.Tensor]]:
         """
         Predicts masks end-to-end from provided images and prompts.
-        If prompts are not known in advance, using SamPredictor is
-        recommended over calling the model directly.
+
 
         Arguments:
           batched_input (list(dict)): A list of dictionaries containing
