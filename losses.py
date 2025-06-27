@@ -112,6 +112,8 @@ def dice_loss(student_masks, teacher_masks):
     for i in range(N):
         s = student_probs[i, :, :, :]  # Maschera del modello studente
         #print(s.shape)
+        if( teacher_masks.ndim == 3):
+            teacher_masks = teacher_masks.unsqueeze(1)
         t = teacher_masks[i, :, :, :]
         #print(t.shape)
         # Dice Loss

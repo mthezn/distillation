@@ -8,11 +8,11 @@ import time
 import cv2
 from datasets import load_dataset
 
-from Dataset import ImageMaskDataset
+from Dataset import ImageMaskDataset, CholecDataset
 import torch
 from torch.utils.data import DataLoader
 from modeling.build_sam import sam_model_registry
-
+from utility import dice_coefficient,sensitivity,specificity
 
 def display_image(dataset, image_index):
     '''Display the image and corresponding three masks.'''
@@ -82,6 +82,7 @@ def calculate_iou(mask_pred, mask_gt):
     return iou
 
 
+
 def show_box(box, ax):
     x0, y0 = box[0], box[1]
     w, h = box[2] - box[0], box[3] - box[1]
@@ -113,6 +114,7 @@ def refining(mask):
 
 image_dirs_val = ["MICCAI/instrument_1_4_testing/instrument_dataset_4/left_frames"]
 mask_dirs_val = ["MICCAI/instrument_2017_test/instrument_2017_test/instrument_dataset_4/gt/BinarySegmentation"]
+image_dirs_leeds = ["leeds/left"]
 
 image_dirs_train = [
 
@@ -138,15 +140,15 @@ def contains_instrument(example):
 datasetCholec = load_dataset("minwoosun/CholecSeg8k", trust_remote_code=True)
 
 filtered_ds = datasetCholec['train'].filter(contains_instrument)
-datasetTest = ImageMaskDataset(image_dirs=image_dirs_val, mask_dirs=mask_dirs_val, transform=validation_transform,
+datasetTest = ImageMaskDataset(image_dirs=image_dirs_leeds, mask_dirs=None, transform=validation_transform,
                                )
-#datasetTest = CholecDataset(hf_dataset=filtered_ds, transform=validation_transform)
+#datasetTest = CholecDataset(hf_dataset=datasetCholec['train'], transform=validation_transform)
 dataloaderTest = DataLoader(datasetTest, batch_size=2, shuffle=True)
 
 
 # CARICO UN MODELLO SAM
 # sam_checkpoint = "C:/Users/User/OneDrive - Politecnico di Milano/Documenti/POLIMI/Tesi/distillation/checkpoints/sam_vit_b_01ec64.pth"
-autosam_checkpoint = "checkpoints/26_05/autoSamocWKh.pth"
+autosam_checkpoint = "checkpoints/23_06/autoSamRandom68v4F.pth"
 model_type = "autoSam"
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -161,7 +163,7 @@ model.eval()
 
 
 # predictor = SamPredictor(model)
-timeDf = pd.DataFrame(columns=['time', 'index', 'iou'])
+timeDf = pd.DataFrame(columns=['time', 'index', 'iou','dice','sensitivity','specificity'])
 
 for images, labels in dataloaderTest:  # i->batch index, images->batch of images, labels->batch of labels
 
@@ -248,8 +250,12 @@ for images, labels in dataloaderTest:  # i->batch index, images->batch of images
 
         latency = (end_time - start_time) * 1000
         iou = calculate_iou(mask, label)
+        dice = dice_coefficient(mask, label)
+        sensitivity = sensitivity(mask, label)
+        specificity = specificity(mask, label)
 
-        timeDf.loc[len(timeDf)] = [latency, len(timeDf), iou]
+        timeDf.loc[len(timeDf)] = [latency, len(timeDf), iou,dice,sensitivity,specificity]
 timeDf.to_csv('RISULTATI AUTOSAM/TimeDfBBoxAutoSam.csv', index=False)
+pd.set_option('display.max_rows', None)
 print(timeDf)
 

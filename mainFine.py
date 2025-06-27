@@ -6,12 +6,13 @@ from losses import dice_loss
 
 from modeling.build_sam import sam_model_registry
 from Dataset import ImageMaskDataset
+
 from utils import *
 from albumentations.pytorch import ToTensorV2
 import wandb
 import numpy as np
 import torch.nn as nn
-from engine import train_one_epoch_auto, validate_one_epoch_auto
+from engine import train_one_epoch_fine, validate_one_epoch_fine
 from torch.utils.data import ConcatDataset
 
 from timm.optim import create_optimizer_v2
@@ -25,7 +26,7 @@ from utility import generate_random_name, contains_instrument
 
 
 wandb.login(key='14497a5de45116d579bde37168ccf06f78c2928e')  # Replace 'your_api_key' with your actual API key
-name = "autoSamVitH"+generate_random_name(5)
+name = "autoSamRandom"+generate_random_name(5)
 
 datasetCholec = load_dataset("minwoosun/CholecSeg8k", trust_remote_code=True)
 
@@ -43,49 +44,28 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 
 
 
-#CREO UN MODELLO CON ENCODER CMT CHE USERO  COME TEACHER, DISTILLATO DA UN SAM
-
-
-teacher_checkpoint = "checkpoints/checkpoints_mmagro/decoupledVitHhkuYf.pth"  # Path to the teacher model checkpoint
+#CARICO IL MIO AUTOSAM
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
-sam_checkpoint = "checkpoints/sam_vit_h_4b8939.pth"  # Path to the SAM checkpoint
-sam= sam_model_registry["vit_h"](checkpoint=sam_checkpoint).to(device=device)
+#autosam_checkpoint = "checkpoints/26_05/autoSamKlnmJ.pth"  # Path to the autosam checkpoint
 
 
-model = sam_model_registry["CMT"](checkpoint=None)
-model.load_state_dict(torch.load(teacher_checkpoint, map_location=device), strict=False)  # Load the state dict into the model
+model = sam_model_registry["autoSam"](checkpoint=None)
+#model.load_state_dict(torch.load(autosam_checkpoint, map_location=device), strict=False)  # Load the state dict into the model
 
 
 model.to(device=device)
-sam.image_encoder = (model.image_encoder)  # Clone the image encoder
 
 
 
-sam.eval()
 
 
-# CONGELO TUTTO
-for param in sam.parameters():
-    param.requires_grad = False
-for param in sam.mask_decoder.parameters():
-    param.requires_grad = False
 
 
 #MODELLO STUDENT
 
-student = sam_model_registry["autoSam"]()
-cloned_image_encoder = copy.deepcopy(model.image_encoder)  # Clone the image encoder
-cloned_image_encoder.load_state_dict(model.image_encoder.state_dict())  # Copy the weights
-student.image_encoder = cloned_image_encoder
+model.train()
 
-student.to(device=device)
-student.train()
-
-for param in student.parameters():
-    param.requires_grad = False
-for param in student.mask_decoder.parameters():
-    param.requires_grad = True
 
 batch_size = 2
 
@@ -97,7 +77,7 @@ optimizer_cfg = {
     'lr': lr,
     'weight_decay': 1e-4,
 }
-optimizer = create_optimizer_v2(student,**optimizer_cfg)
+optimizer = create_optimizer_v2(model,**optimizer_cfg)
 loss_scaler = NativeScaler()
 scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer,mode = 'min',factor = 0.1,patience = 3,threshold=0.000001)
 
@@ -128,13 +108,13 @@ run = wandb.init(
     # Set the wandb entity where your project will be logged (generally your team name).
 
     # Set the wandb project where this run will be logged.
-    project="autoSamDistillationNew",
+    project="autoSamFineTuning",
     name=name,
     # Track hyperparameters and run metadata.
     config={
         "learning_rate": lr,
         "architecture": "CMT/autoSam",
-        "dataset": "Miccai",
+        "dataset": "Miccai + Cholec",
         "epochs": epochs,
         "criterion": "DiceLoss",
         "batch_size": batch_size,
@@ -197,10 +177,10 @@ mask_dirs_train = [
 datasetVal = ImageMaskDataset(image_dirs=image_dirs_val,mask_dirs=mask_dirs_val,transform=validation_transform,increase=False)
 dataloaderVal = DataLoader(datasetVal,batch_size=batch_size,shuffle=True)
 
-#dataset_cholec = CholecDataset(filtered_ds, transform=train_transform)
+dataset_cholec = CholecDataset(filtered_ds, transform=train_transform)
 datasetMiccai = ImageMaskDataset(image_dirs=image_dirs_train,mask_dirs=mask_dirs_train,transform=train_transform,increase=True)
 
-#dataset_finale = ConcatDataset([dataset_cholec, datasetMiccai])
+dataset_finale = ConcatDataset([dataset_cholec, datasetMiccai])
 
 dataloader = DataLoader(datasetMiccai,batch_size=batch_size,shuffle=True,pin_memory=True)
 for images, masks in dataloader:
@@ -212,7 +192,7 @@ for images, masks in dataloader:
 patience = 5  # Number of epochs to wait for improvement
 best_val_loss = float('inf')
 epochs_no_improve = 0
-checkpoint_path = "checkpoints/26_05/" + name+".pth"
+checkpoint_path = "checkpoints/23_06/" + name+".pth"
 
 torch.cuda.empty_cache()
 gc.collect()
@@ -220,12 +200,12 @@ for epoch in range(0, epochs):
     print(f"Epoch {epoch + 1}/{epochs}")
 
 
-    train_stats = train_one_epoch_auto(sam,student,dataloader,optimizer,device,run,epoch,criterion)
+    train_stats = train_one_epoch_fine(model,dataloader,optimizer,device,run,epoch,criterion)
 
     torch.cuda.empty_cache()
     gc.collect()
     #print(epoch)
-    val_loss = validate_one_epoch_auto(sam,student,dataloaderVal,criterion ,device,epoch,run)
+    val_loss = validate_one_epoch_fine(model,dataloaderVal,device,run,epoch,criterion)
     scheduler.step(val_loss)  # Update the learning rate scheduler based on validation loss
     print(
         f"Epoch {epoch} loss: {val_loss}")
@@ -233,7 +213,7 @@ for epoch in range(0, epochs):
         print(f"Validation loss improved from {best_val_loss:.4f} to {val_loss:.4f}. Saving model...")
         best_val_loss = val_loss
         epochs_no_improve = 0
-        torch.save(student.state_dict(), checkpoint_path)  # Save the best model
+        torch.save(model.state_dict(), checkpoint_path)  # Save the best model
     else:
         epochs_no_improve += 1
         print(f"No improvement for {epochs_no_improve} epoch(s).")

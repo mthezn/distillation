@@ -7,11 +7,11 @@ import numpy as np
 import time
 import cv2
 
-from Dataset import ImageMaskDataset
+from Dataset import ImageMaskDataset,CholecDataset
 import torch
 from torch.utils.data import DataLoader
 from modeling.build_sam import sam_model_registry
-
+from utility import dice_coefficient,sensitivity,specificity
 
 def display_image(dataset, image_index):
     '''Display the image and corresponding three masks.'''
@@ -146,7 +146,7 @@ dataloaderTest = DataLoader(datasetTest, batch_size=2, shuffle=True)
 
 # CARICO UN MODELLO SAM
 # sam_checkpoint = "C:/Users/User/OneDrive - Politecnico di Milano/Documenti/POLIMI/Tesi/distillation/checkpoints/sam_vit_b_01ec64.pth"
-autosam_checkpoint = "checkpoints/26_05/autoSamKlnmJ.pth"
+autosam_checkpoint = "checkpoints/23_06/autoSamFineVitHSuOkl.pth"
 model_type = "autoSam"
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -160,7 +160,7 @@ model.eval()
 
 
 # predictor = SamPredictor(model)
-timeDf = pd.DataFrame(columns=['time', 'index', 'iou'])
+timeDf = pd.DataFrame(columns=['time', 'index', 'iou','dice','sensitivity','specificity'])
 
 for images, labels in dataloaderTest:  # i->batch index, images->batch of images, labels->batch of labels
 
@@ -231,8 +231,14 @@ for images, labels in dataloaderTest:  # i->batch index, images->batch of images
 
         latency = (end_time - start_time) * 1000
         iou = calculate_iou(mask, label)
+        dice = dice_coefficient(mask, label)
+        sensitivity = sensitivity(mask, label)
+        specificity = specificity(mask, label)
 
-        timeDf.loc[len(timeDf)] = [latency, len(timeDf), iou]
+        timeDf.loc[len(timeDf)] = [latency, len(timeDf), iou,dice,sensitivity,specificity]
+
+
 timeDf.to_csv('RISULTATI/TimeDfBBoxAutoSam.csv', index=False)
+pd.set_option('display.max_rows', None)
 print(timeDf)
 

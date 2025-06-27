@@ -1,4 +1,7 @@
-from CMT import CMT_Ti
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from Encoder.CMT import CMT_Ti
 from repvit_sam.modeling import  Sam, PromptEncoder, MaskDecoder, TwoWayTransformer,ImageEncoderViT,TinyViT
 from modeling.autoSam import AutoSam
 from DecoderAutoSam.MaskDecoderAuto import MaskDecoderAuto

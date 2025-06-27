@@ -1,7 +1,8 @@
 
 
 import pandas as pd
-
+import albumentations as A
+from albumentations.pytorch import ToTensorV2
 from repvit_sam import SamPredictor
 from matplotlib import pyplot as plt
 import numpy as np
@@ -15,21 +16,14 @@ from torchvision import transforms
 from modeling.build_sam import sam_model_registry
 
 image_dirs_val = ["MICCAI/instrument_1_4_testing/instrument_dataset_4/left_frames"]
-mask_dirs_val = ["MICCAI/instrument_2017_test/instrument_2017_test/instrument_dataset_4/BinarySegmentation"]
-image_transform = transforms.Compose([
-    transforms.Resize((1024,1024)),
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.5,0.5,0.5],std = [0.5,0.5,0.5])
+mask_dirs_val = ["MICCAI/instrument_2017_test/instrument_2017_test/instrument_dataset_4/gt/BinarySegmentation"]
 
-
-
+validation_transform = A.Compose([
+    A.Resize(1024,1024),
+    A.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
+    ToTensorV2()
 ])
-mask_transform  = transforms.Compose([
-
-    transforms.Resize((1024,1024)),
-    transforms.ToTensor()
-])
-datasetTest = ImageMaskDataset(image_dirs=image_dirs_val,mask_dirs=mask_dirs_val,transform=image_transform,mask_transform=mask_transform)
+datasetTest = ImageMaskDataset(image_dirs=image_dirs_val,mask_dirs=mask_dirs_val,transform=validation_transform)
 dataloaderTest = DataLoader(datasetTest,batch_size=2,shuffle=True)
 def display_image(dataset, image_index):
     '''Display the image and corresponding three masks.'''
@@ -102,7 +96,7 @@ def show_box(box, ax):
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-student_checkpoint = "checkpoints/13_05/decoupledVitBg4SXZ.pth"
+student_checkpoint = "checkpoints/checkpoints_mmagro/decoupledVitHhkuYf.pth"
 
 model = sam_model_registry["CMT"](checkpoint=student_checkpoint)
 model.to(device=device)
@@ -110,8 +104,8 @@ model.to(device=device)
 #print("Missing keys:", model.load_state_dict(state_dict, strict=False))
 #CARICO UN MODELLO SAM
 #sam_checkpoint = "C:/Users/User/OneDrive - Politecnico di Milano/Documenti/POLIMI/Tesi/distillation/checkpoints/sam_vit_b_01ec64.pth"
-sam_checkpoint = "checkpoints/sam_vit_b_01ec64.pth"
-model_type = "vit_b"
+sam_checkpoint = "checkpoints/sam_vit_h_4b8939.pth"
+model_type = "vit_h"
 
 
 
@@ -122,7 +116,7 @@ sam1.image_encoder = model.image_encoder
 sam1.eval()
 model.eval()
 predictor = SamPredictor(sam1)
-sam = sam_model_registry["vit_b"](checkpoint="checkpoints/sam_vit_b_01ec64.pth")
+sam = sam_model_registry["vit_h"](checkpoint="checkpoints/sam_vit_h_4b8939.pth")
 sam.to(device=device)
 sam.eval()
 teacher = SamPredictor(sam)
@@ -185,7 +179,7 @@ for images, labels in dataloaderTest:  # i->batch index, images->batch of images
             label_bin = (label > 0).astype(np.uint8)
             # Convert to binary mask
             contours, _ = cv2.findContours(label_bin, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            contours = sorted(contours, key=cv2.contourArea, reverse=True)[:3]
+            contours = sorted(contours, key=cv2.contourArea, reverse=True)[:5]
             # print("contours",contours)
 
             centroids = []

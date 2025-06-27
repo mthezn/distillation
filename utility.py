@@ -222,10 +222,16 @@ def refining(mask):
     mask = (mask * 255).astype(np.uint8)
     while mask.ndim > 2:
         mask = mask[0]
+
+    #cleaned_mask = np.zeros_like(mask)
+    #num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
+    # Mantieni solo i componenti connessi con area >= min_area
+    #for i in range(1, num_labels):  # Salta lo sfondo (etichetta 0)
+     #   if stats[i, cv2.CC_STAT_AREA] >= 100:
+      #      cleaned_mask[labels == i] = 255
+
     kernel = np.ones((3, 3), np.uint8)
     mask_clean = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-
-
 
     # 2. Chiudi buchi interni (closing)
     mask_clean = cv2.morphologyEx(mask_clean, cv2.MORPH_CLOSE, kernel)
@@ -235,3 +241,48 @@ def refining(mask):
     mask_blurred = mask_blurred/255
 
     return mask_blurred
+
+
+def dice_coefficient(pred: np.ndarray, target: np.ndarray) -> float:
+    """
+    Compute the Dice Coefficient between two binary masks.
+    """
+    pred = pred.astype(bool)
+    target = target.astype(bool)
+
+    intersection = np.logical_and(pred, target).sum()
+    total = pred.sum() + target.sum()
+
+    if total == 0:
+        return 1.0  # both empty, perfect match
+    return 2.0 * intersection / total
+
+
+def sensitivity(pred: np.ndarray, target: np.ndarray) -> float:
+    """
+    Compute Sensitivity (Recall) = TP / (TP + FN)
+    """
+    pred = pred.astype(bool)
+    target = target.astype(bool)
+
+    tp = np.logical_and(pred, target).sum()
+    fn = np.logical_and(np.logical_not(pred), target).sum()
+
+    if tp + fn == 0:
+        return 1.0  # no positive cases in ground truth
+    return tp / (tp + fn)
+
+
+def specificity(pred: np.ndarray, target: np.ndarray) -> float:
+    """
+    Compute Specificity = TN / (TN + FP)
+    """
+    pred = pred.astype(bool)
+    target = target.astype(bool)
+
+    tn = np.logical_and(np.logical_not(pred), np.logical_not(target)).sum()
+    fp = np.logical_and(pred, np.logical_not(target)).sum()
+
+    if tn + fp == 0:
+        return 1.0  # no negative cases in ground truth
+    return tn / (tn + fp)

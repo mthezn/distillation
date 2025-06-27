@@ -11,8 +11,8 @@ from modeling.build_sam import sam_model_registry
 from repvit_sam import SamPredictor
 import pandas as pd
 
-image_dirs_val = ["MICCAI/instrument_1_4_testing/instrument_dataset_4/left_frames"]
-mask_dirs_val = ["MICCAI/instrument_2017_test/instrument_2017_test/instrument_dataset_4/gt/BinarySegmentation"]
+image_dirs_val = ["../MICCAI/instrument_1_4_testing/instrument_dataset_4/left_frames"]
+mask_dirs_val = ["../MICCAI/instrument_2017_test/instrument_2017_test/instrument_dataset_4/gt/BinarySegmentation"]
 image_transform = A.Compose([
     A.Resize(1024, 1024),
     #A.HorizontalFlip(p=0.5),
@@ -100,8 +100,8 @@ def show_box(box, ax):
 
 
 
-sam_checkpoint = "checkpoints/sam_vit_h_4b8939.pth"  # Path to the SAM model checkpoint
-model_type = "vit_h"
+sam_checkpoint = "../checkpoints/sam_vit_b_01ec64.pth"  # Path to the SAM model checkpoint
+model_type = "vit_b"
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -170,6 +170,8 @@ for images, labels in dataloaderTest:  # i->batch index, images->batch of images
                 multimask_output=False,
             )
             plt.figure(figsize=(10, 10))
+            image = (image * 0.5 + 0.5) * 255
+            image = image.astype(np.uint8)
             plt.imshow(image)
             maskunion = np.zeros_like(masks[0].cpu().numpy())
             for mask in masks:

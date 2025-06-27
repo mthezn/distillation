@@ -116,6 +116,91 @@ def train_one_epoch(model,
     return epoch_loss
 
 
+def train_one_epoch_fine(model,
+
+                         dataloader,
+                         optimizer,
+                         device,
+                         run,
+                         epoch,
+                         criterion
+                         ):
+
+    bar = tqdm(enumerate(dataloader), total=len(dataloader), desc=f"Epoch {epoch}")
+    running_loss = 0.0
+    dataset_size = 0
+    epoch_loss = 0.0
+    scaler = torch.amp.GradScaler()
+    predictor = SamPredictor(model)
+
+    for i, (images, labels) in bar:  # i->batch index, images->batch of images, labels->batch of labels
+        images = images.to(device)
+        labels = labels.to(device)
+
+
+        results_stud = []
+        label_list = []
+
+        for image, label in zip(images, labels):
+            # Convert the mask to a binary mask
+            label = label.detach().cpu().numpy()
+            #label = label.unsqueeze()  # Assicurati che sia 2D
+            label = (label > 0).astype(np.uint8)  # Assicurati che sia 2D
+            label_list.append(label)
+
+
+            image_array = image.cpu().numpy()
+            image = image.unsqueeze(0)  # B, C, H, W
+
+
+
+            image_embeddings = model.image_encoder(image)  # -> dict con "image_embed"
+            low_res_stud, _ = model.mask_decoder(
+                image_embeddings=image_embeddings,  # dict
+                image_pe=model.prompt_encoder.get_dense_pe(),
+
+                multimask_output=False
+            )  # low_res_stud -> logits
+
+            low_res_stud = model.postprocess_masks(low_res_stud, (1024, 1024), (1024, 1024))
+            mask = low_res_stud > model.mask_threshold
+            iou = calculate_iou(mask, label)
+
+
+
+            for i in range(low_res_stud.shape[0]):
+                low_res_stud_temp = low_res_stud[i].float()
+                # maskunion_stud = torch.max(maskunion_stud, mask.float())
+
+                results_stud.append(low_res_stud_temp)
+
+
+        results_label = torch.stack([torch.tensor(label) for label in label_list]).to(device)
+        results_stud = torch.stack(results_stud).to(device)
+
+        loss = criterion(results_stud,results_label.float())
+        # print("loss", loss)
+
+        if torch.isfinite(loss):
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+        else:
+            print(f"Skipping step at batch {i} due to non-finite loss: {loss}")
+            optimizer.zero_grad(set_to_none=True)
+            continue  # salta al batch successivo
+
+        # Update progress
+        batch_size = images.shape[0]
+        running_loss += loss.item() * batch_size
+        dataset_size += batch_size
+        epoch_loss = running_loss / dataset_size
+        bar.set_description(f"Loss: {loss.item()}")
+        run.log({"train_loss": epoch_loss, "epoch": epoch + 1, "batch": i + 1})
+        bar.set_postfix(Epoch=epoch, Train_loss=epoch_loss, LR=optimizer.param_groups[0]['lr'])
+    return epoch_loss
+
+
 def train_one_epoch_auto(model,
                          student,
                          dataloader,
@@ -196,7 +281,7 @@ def train_one_epoch_auto(model,
             image_array = image.cpu().numpy()
             image = image.unsqueeze(0) #B, C, H, W
 
-            centroids,bbox,input_label = get_bbox_centroids(label,2)
+            centroids,bbox,input_label = get_bbox_centroids(label,5)
 
 
             bbox = torch.tensor(bbox).float()
@@ -366,6 +451,78 @@ def validate_one_epoch(
     return epoch_loss
 
 
+def validate_one_epoch_fine(model,
+
+                         dataloader,
+
+                         device,
+                         run,
+                         epoch,
+                         criterion
+                         ):
+    model.eval()
+
+
+    running_loss = 0.0
+    dataset_size = 0
+    predictor = SamPredictor(model)
+
+    bar = tqdm(enumerate(dataloader), desc=f"[Val] Epoch {epoch}", leave=False)
+
+    with torch.no_grad():
+
+        for i, (images, labels) in bar:  # i->batch index, images->batch of images, labels->batch of labels
+            images = images.to(device)
+
+            labels = labels.to(device)
+            label_list = []
+
+            results_stud = []
+
+            for image, label in zip(images, labels):
+                # Convert the label to a binary mask
+                label = label.detach().cpu().numpy()
+
+                label = (label > 0).astype(np.uint8)
+                label_list.append(label)
+
+                image_array = image.cpu().numpy()
+                image = image.unsqueeze(0)
+
+
+
+                image_embeddings = model.image_encoder(image)
+
+                low_res_stud, _ = model.mask_decoder(
+                    image_embeddings=image_embeddings,  # dict
+                    image_pe=model.prompt_encoder.get_dense_pe(),
+
+                    multimask_output=False
+                )
+                low_res_stud = model.postprocess_masks(low_res_stud, (1024, 1024), (1024, 1024))
+
+                for i in range(low_res_stud.shape[0]):
+                    low_res_temp = low_res_stud[i].float()
+                    results_stud.append(low_res_temp)
+
+            result_label = torch.stack([torch.tensor(label) for label in label_list]).to(device)
+
+             # for BCE with logits loss
+
+            results_stud = torch.stack(results_stud).to(device)
+
+            loss = criterion(results_stud, result_label.float())
+
+            # Update progress
+            batch_size = images.shape[0]
+            running_loss += loss.item() * batch_size
+            dataset_size += batch_size
+            epoch_loss = running_loss / dataset_size
+            bar.set_description(f"Loss: {loss.item()}")
+            run.log({"val_loss": epoch_loss, "epoch": epoch + 1, "batch": i + 1})
+            bar.set_postfix(Epoch=epoch, Val_loss=epoch_loss)
+
+        return epoch_loss
 
 
 def validate_one_epoch_auto(
@@ -447,7 +604,7 @@ def validate_one_epoch_auto(
                 image_array = image.cpu().numpy()
                 image = image.unsqueeze(0)
 
-                centroids,bbox, input_label = get_bbox_centroids(label, 2)
+                centroids,bbox, input_label = get_bbox_centroids(label, 5)
 
 
 

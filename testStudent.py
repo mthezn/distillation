@@ -8,17 +8,16 @@ import cv2
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 
-from Dataset import ImageMaskDataset
+from Dataset import ImageMaskDataset,CholecDataset
 import torch
 from torch.utils.data import DataLoader
 from torchvision import transforms
 from modeling.build_sam import sam_model_registry
 import torch.nn.functional as F
-from datasets import load_dataset_builder
+from datasets import load_dataset
 from PIL import Image
 from display import show_mask, show_points, show_box
 from utility import generate_random_name,refining, predict_points_boxes,contains_instrument, calculate_iou,get_bbox_centroids
-
 
 
 
@@ -45,11 +44,11 @@ image_transform = A.Compose([
 
 
 
-#datasetCholec = load_dataset("minwoosun/CholecSeg8k", trust_remote_code=True)
+datasetCholec = load_dataset("minwoosun/CholecSeg8k", trust_remote_code=True)
 
-#filtered_ds = datasetCholec['train'].filter(contains_instrument)
+filtered_ds = datasetCholec['train'].filter(contains_instrument)
 datasetTest = ImageMaskDataset(image_dirs=image_dirs_val,mask_dirs=mask_dirs_val,transform=image_transform)
-#datasetTest = CholecDataset(hf_dataset=filtered_ds, transform=image_transform, mask_transform=mask_transform)
+#datasetTest = CholecDataset(hf_dataset=filtered_ds, transform=image_transform)
 dataloaderTest = DataLoader(datasetTest,batch_size=2,shuffle=True)
 
 student_checkpoint = "checkpoints/checkpoints_mmagro/decoupledVitHhkuYf.pth"
@@ -57,12 +56,12 @@ state_dict = torch.load(student_checkpoint, map_location=torch.device('cpu'))
 model = sam_model_registry["CMT"](checkpoint=None)
 model.load_state_dict(state_dict)
 
-#print("Missing keys:", model.load_state_dict(state_dict, strict=False))
-#CARICO UN MODELLO SAM
-#sam_checkpoint = "C:/Users/User/OneDrive - Politecnico di Milano/Documenti/POLIMI/Tesi/distillation/checkpoints/sam_vit_b_01ec64.pth"
 
-sam_checkpoint = "checkpoints/sam_vit_h_4b8939.pth"
-model_type = "vit_h"
+#CARICO UN MODELLO SAM
+
+
+sam_checkpoint = "checkpoints/repvit_sam.pt"
+model_type = "repvit"
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -81,7 +80,7 @@ model.eval()
 
 
 
-#predictor = SamPredictor(model)
+
 timeDf = pd.DataFrame(columns=['time', 'index', 'iou'])
 
 for images, labels in dataloaderTest:  # i->batch index, images->batch of images, labels->batch of labels
@@ -103,7 +102,7 @@ for images, labels in dataloaderTest:  # i->batch index, images->batch of images
             image_array = np.array(image.cpu())
             image = image.unsqueeze(0)
             # Convert to binary mask
-            #label = (label > 0).astype(np.uint8)
+
             plt.figure(figsize=(10, 10))
             plt.imshow(label.squeeze(), cmap='gray')
 
@@ -134,9 +133,7 @@ for images, labels in dataloaderTest:  # i->batch index, images->batch of images
             #vec = torch.sigmoid(low_res)
             #vec = F.interpolate(vec, (1024,1024), mode="bilinear", align_corners=False)
             end_time = time.time()
-            unique, values = np.unique(masks, return_counts=True)
-            print("unique", unique)
-            print("values", values)
+
 
             plt.figure(figsize=(10, 10))
 
@@ -146,9 +143,8 @@ for images, labels in dataloaderTest:  # i->batch index, images->batch of images
                 mask = mask.cpu().numpy()
                 mask = refining(mask)
                 show_mask(mask, plt.gca(), random_color=True)
-                values, counts = np.unique(mask ,return_counts=True)#mask.cpu().numpy()
-                print("unique", values)
-                print("counts", counts)
+
+
 
 
                 maskunion = np.logical_or(maskunion, mask)
