@@ -47,11 +47,11 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 #CARICO IL MIO AUTOSAM
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
-#autosam_checkpoint = "checkpoints/26_05/autoSamKlnmJ.pth"  # Path to the autosam checkpoint
+autosam_checkpoint = "checkpoints/26_05/autoSamKlnmJ.pth"  # Path to the autosam checkpoint
 
 
 model = sam_model_registry["autoSam"](checkpoint=None)
-#model.load_state_dict(torch.load(autosam_checkpoint, map_location=device), strict=False)  # Load the state dict into the model
+model.load_state_dict(torch.load(autosam_checkpoint, map_location=device), strict=False)  # Load the state dict into the model
 
 
 model.to(device=device)
