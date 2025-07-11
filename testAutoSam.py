@@ -13,7 +13,8 @@ import torch
 from torch.utils.data import DataLoader
 from modeling.build_sam import sam_model_registry
 from utility import dice_coefficient,sensitivity,specificity
-
+import os
+os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 def display_image(dataset, image_index):
     '''Display the image and corresponding three masks.'''
 
@@ -112,10 +113,10 @@ def refining(mask):
 
 ########################################################################################################
 
-image_dirs_val = ["MICCAI/instrument_1_4_testing/instrument_dataset_4/left_frames"]
-mask_dirs_val = ["MICCAI/instrument_2017_test/instrument_2017_test/instrument_dataset_4/gt/BinarySegmentation"]
+image_dirs_val = ["MICCAI/instrument_1_4_testing/instrument_dataset_1/left_frames"]
+mask_dirs_val = ["MICCAI/instrument_2017_test/instrument_2017_test/instrument_dataset_1/gt/BinarySegmentation"]
 image_dirs_leeds = ["leeds/left"]
-
+image_dirs_val = ["cat1_test_set_public/frames1"]
 image_dirs_train = [
 
     "MICCAI/instrument_1_4_training/instrument_dataset_1/left_frames",
@@ -140,7 +141,7 @@ def contains_instrument(example):
 datasetCholec = load_dataset("minwoosun/CholecSeg8k", trust_remote_code=True)
 
 filtered_ds = datasetCholec['train'].filter(contains_instrument)
-datasetTest = ImageMaskDataset(image_dirs=image_dirs_leeds, mask_dirs=None, transform=validation_transform,
+datasetTest = ImageMaskDataset(image_dirs=image_dirs_val, mask_dirs=None, transform=validation_transform,
                                )
 #datasetTest = CholecDataset(hf_dataset=datasetCholec['train'], transform=validation_transform)
 dataloaderTest = DataLoader(datasetTest, batch_size=2, shuffle=True)
@@ -192,9 +193,9 @@ for images, labels in dataloaderTest:  # i->batch index, images->batch of images
 
             # Convert to binary mask
         # label = (label > 0).astype(np.uint8)
-        plt.figure(figsize=(10, 10))
-        plt.imshow(label.squeeze(), cmap='gray') #con label *255 funziona perche non l iinterpreta forse come bianri ma come valori di intensita quindi 1 è molto picolo
-        plt.axis('off')
+       # plt.figure(figsize=(10, 10))
+        #plt.imshow(label.squeeze(), cmap='gray') #con label *255 funziona perche non l iinterpreta forse come bianri ma come valori di intensita quindi 1 è molto picolo
+        #plt.axis('off')
         start_time = time.time()
         image_embedding = model.image_encoder(image)
         low_res, _ = model.mask_decoder(
@@ -251,10 +252,11 @@ for images, labels in dataloaderTest:  # i->batch index, images->batch of images
         latency = (end_time - start_time) * 1000
         iou = calculate_iou(mask, label)
         dice = dice_coefficient(mask, label)
-        sensitivity = sensitivity(mask, label)
-        specificity = specificity(mask, label)
+        sens = sensitivity(mask, label)
+        spec = specificity(mask, label)
+        print(iou, dice, sens, spec)
 
-        timeDf.loc[len(timeDf)] = [latency, len(timeDf), iou,dice,sensitivity,specificity]
+        timeDf.loc[len(timeDf)] = [latency, len(timeDf), iou,dice,sens,spec]
 timeDf.to_csv('RISULTATI AUTOSAM/TimeDfBBoxAutoSam.csv', index=False)
 pd.set_option('display.max_rows', None)
 print(timeDf)

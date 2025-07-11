@@ -10,6 +10,7 @@ import time
 import cv2
 
 from Dataset import ImageMaskDataset
+from utility import dice_coefficient, sensitivity, specificity
 import torch
 from torch.utils.data import DataLoader
 from torchvision import transforms
@@ -103,11 +104,11 @@ def predict_points_boxes(predictor,boxes,centroids,input_label):
 
     for i in range(boxes.shape[0]):
         box = boxes[i].unsqueeze(0)  # shape: [1, 4], batch size 1
-        print(box.shape)
+        #print(box.shape)
         centroid = centroids[:,i,:].unsqueeze(0) # shape: [1,1,2]
-        print(centroid.shape)
+        #print(centroid.shape)
         input = input_label[:,i].unsqueeze(0) # shape: [1, N]
-        print(input.shape)
+        #print(input.shape)
         masks, scores, low_res = predictor.predict_torch(
             point_coords=centroid,
             point_labels=input,
@@ -171,7 +172,7 @@ def refining(mask):
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-student_checkpoint = "checkpoints/checkpoints_mmagro/decoupledVitHhkuYf.pth"
+student_checkpoint = "checkpoints/13_05/decoupledVitBDGfFE.pth"
 
 model = sam_model_registry["CMT"](checkpoint=student_checkpoint)
 model.to(device=device)
@@ -179,8 +180,8 @@ model.to(device=device)
 #print("Missing keys:", model.load_state_dict(state_dict, strict=False))
 #CARICO UN MODELLO SAM
 #sam_checkpoint = "C:/Users/User/OneDrive - Politecnico di Milano/Documenti/POLIMI/Tesi/distillation/checkpoints/sam_vit_b_01ec64.pth"
-sam_checkpoint = "checkpoints/repvit_sam.pt"
-model_type = "repvit"
+sam_checkpoint = "C:/Users/User/Downloads/weight/weight/mobile_sam.pt"
+model_type = "vit_t"
 
 
 
@@ -222,7 +223,7 @@ model.prompt_encoder = cloned_prompt_encoder
 
 
 #predictor = SamPredictor(model)
-timeDf = pd.DataFrame(columns=['time', 'index', 'iou'])
+timeDf = pd.DataFrame(columns=['time', 'index', 'iou','dice','sensitivity','specificity'])
 
 for images, labels in dataloaderTest:  # i->batch index, images->batch of images, labels->batch of labels
 
@@ -303,8 +304,11 @@ for images, labels in dataloaderTest:  # i->batch index, images->batch of images
 
             latency = (end_time - start_time) * 1000
             iou = calculate_iou(maskunion, label)
+            dice = dice_coefficient(maskunion, label)
+            sens = sensitivity(maskunion, label)
+            spec = specificity(maskunion, label)
 
-            timeDf.loc[len(timeDf)] = [latency, len(timeDf), iou]
+            timeDf.loc[len(timeDf)] = [latency, len(timeDf), iou,dice,sens,spec]
 timeDf.to_csv('RISULTATI/TimeDfBBoxStudent.csv', index=False)
 print(timeDf)
 

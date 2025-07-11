@@ -16,6 +16,7 @@ from modeling.build_sam import sam_model_registry
 import torch.nn.functional as F
 from datasets import load_dataset
 from PIL import Image
+from utility import dice_coefficient,sensitivity,specificity
 from display import show_mask, show_points, show_box
 from utility import generate_random_name,refining, predict_points_boxes,contains_instrument, calculate_iou,get_bbox_centroids
 
@@ -60,15 +61,16 @@ model.load_state_dict(state_dict)
 #CARICO UN MODELLO SAM
 
 
-sam_checkpoint = "checkpoints/repvit_sam.pt"
-model_type = "repvit"
+sam_checkpoint = "C:/Users/User/Downloads/weight/weight/mobile_sam.pt"
+model_type = "vit_t"
+
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 sam = sam_model_registry[model_type](checkpoint=sam_checkpoint)
 sam.to(device=device)
 #ASSEGNO L'IMAGE ENCODER DISTILLATO A SAM
-sam.image_encoder = model.image_encoder
+#sam.image_encoder = model.image_encoder
 sam.eval()
 model.eval()
 predictor = SamPredictor(sam) 
@@ -81,7 +83,7 @@ model.eval()
 
 
 
-timeDf = pd.DataFrame(columns=['time', 'index', 'iou'])
+timeDf = pd.DataFrame(columns=['time', 'index', 'iou', 'dice', 'sensitivity', 'specificity'])
 
 for images, labels in dataloaderTest:  # i->batch index, images->batch of images, labels->batch of labels
 
@@ -153,10 +155,14 @@ for images, labels in dataloaderTest:  # i->batch index, images->batch of images
             plt.axis('off')
             plt.show()
 
+
             latency = (end_time - start_time) * 1000
             iou = calculate_iou(maskunion, label)
+            dice = dice_coefficient(maskunion, label)
+            sens = sensitivity(maskunion, label)
+            spec = specificity(maskunion, label)
 
-            timeDf.loc[len(timeDf)] = [latency, len(timeDf), iou]
+            timeDf.loc[len(timeDf)] = [latency, len(timeDf), iou, dice, sens, spec]
 timeDf.to_csv('RISULTATI DECOUPLED/TimeDfBBoxStudent.csv', index=False)
 print(timeDf)
 

@@ -146,7 +146,7 @@ dataloaderTest = DataLoader(datasetTest, batch_size=2, shuffle=True)
 
 # CARICO UN MODELLO SAM
 # sam_checkpoint = "C:/Users/User/OneDrive - Politecnico di Milano/Documenti/POLIMI/Tesi/distillation/checkpoints/sam_vit_b_01ec64.pth"
-autosam_checkpoint = "checkpoints/23_06/autoSamFineVitHSuOkl.pth"
+autosam_checkpoint = "checkpoints/26_05/autoSamKlnmJ.pth"
 model_type = "autoSam"
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -232,10 +232,10 @@ for images, labels in dataloaderTest:  # i->batch index, images->batch of images
         latency = (end_time - start_time) * 1000
         iou = calculate_iou(mask, label)
         dice = dice_coefficient(mask, label)
-        sensitivity = sensitivity(mask, label)
-        specificity = specificity(mask, label)
+        sens = sensitivity(mask, label)
+        spec = specificity(mask, label)
 
-        timeDf.loc[len(timeDf)] = [latency, len(timeDf), iou,dice,sensitivity,specificity]
+        timeDf.loc[len(timeDf)] = [latency, len(timeDf), iou,dice,sens,spec]
 
 
 timeDf.to_csv('RISULTATI/TimeDfBBoxAutoSam.csv', index=False)
