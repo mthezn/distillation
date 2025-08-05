@@ -26,17 +26,20 @@ from utility import generate_random_name, contains_instrument
 
 
 wandb.login(key='14497a5de45116d579bde37168ccf06f78c2928e')  # Replace 'your_api_key' with your actual API key
-name = "autoSamRandom"+generate_random_name(5)
+name = "autoSamFineUnet"+generate_random_name(5)
 
 datasetCholec = load_dataset("minwoosun/CholecSeg8k", trust_remote_code=True)
 
 
 
-filtered_ds = datasetCholec["train"].filter(contains_instrument)
+filtered_ds = datasetCholec["train"].filter(
+
+
+)
 
 
 seed = 42
-os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
+#os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
 torch.manual_seed(seed)
 np.random.seed(seed)
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -47,15 +50,14 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 #CARICO IL MIO AUTOSAM
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
-autosam_checkpoint = "checkpoints/26_05/autoSamKlnmJ.pth"  # Path to the autosam checkpoint
+autosam_checkpoint = "checkpoints/28_07/autoSamVitHUnetD3llB.pth"  # Path to the autosam checkpoint
 
 
-model = sam_model_registry["autoSam"](checkpoint=None)
-model.load_state_dict(torch.load(autosam_checkpoint, map_location=device), strict=False)  # Load the state dict into the model
-
+model = sam_model_registry["autoSamUnet"](checkpoint=None)
+model.load_state_dict(torch.load(autosam_checkpoint, map_location=device),strict=True)  # Load the state dict into the model
 
 model.to(device=device)
-
+#
 
 
 
@@ -67,6 +69,7 @@ model.to(device=device)
 model.train()
 
 
+
 batch_size = 2
 
 lr = 0.0001
@@ -75,7 +78,7 @@ lr = 0.0001
 optimizer_cfg = {
     'opt': 'adamw',
     'lr': lr,
-    'weight_decay': 1e-4,
+    'weight_decay': 1e-6,
 }
 optimizer = create_optimizer_v2(model,**optimizer_cfg)
 loss_scaler = NativeScaler()
@@ -113,7 +116,7 @@ run = wandb.init(
     # Track hyperparameters and run metadata.
     config={
         "learning_rate": lr,
-        "architecture": "CMT/autoSam",
+        "architecture": "CMT/Unet",
         "dataset": "Miccai + Cholec",
         "epochs": epochs,
         "criterion": "DiceLoss",
@@ -182,17 +185,17 @@ datasetMiccai = ImageMaskDataset(image_dirs=image_dirs_train,mask_dirs=mask_dirs
 
 dataset_finale = ConcatDataset([dataset_cholec, datasetMiccai])
 
-dataloader = DataLoader(datasetMiccai,batch_size=batch_size,shuffle=True,pin_memory=True)
+dataloader = DataLoader(dataset_finale,batch_size=batch_size,shuffle=True,pin_memory=True)
 for images, masks in dataloader:
     print(f"Batch di immagini: {images.shape}")  # (batch_size, 3, 224, 224)
     print(f"Batch di maschere: {masks.shape}")  # (batch_size, 1, 224, 224)
     break
 
 #TRAINING
-patience = 5  # Number of epochs to wait for improvement
+patience = 7  # Number of epochs to wait for improvement
 best_val_loss = float('inf')
 epochs_no_improve = 0
-checkpoint_path = "checkpoints/23_06/" + name+".pth"
+checkpoint_path = "checkpoints/28_07/" + name+".pth"
 
 torch.cuda.empty_cache()
 gc.collect()

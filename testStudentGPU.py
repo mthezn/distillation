@@ -180,8 +180,8 @@ model.to(device=device)
 #print("Missing keys:", model.load_state_dict(state_dict, strict=False))
 #CARICO UN MODELLO SAM
 #sam_checkpoint = "C:/Users/User/OneDrive - Politecnico di Milano/Documenti/POLIMI/Tesi/distillation/checkpoints/sam_vit_b_01ec64.pth"
-sam_checkpoint = "C:/Users/User/Downloads/weight/weight/mobile_sam.pt"
-model_type = "vit_t"
+sam_checkpoint = "checkpoints/sam_vit_h_4b8939.pth"
+model_type = "vit_h"
 
 
 

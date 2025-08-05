@@ -201,7 +201,7 @@ class CholecDataset(Dataset):
 
             if isinstance(instrument_mask, np.ndarray):
                 instrument_mask = torch.tensor(instrument_mask, dtype=torch.float32)
-            print("mask unique after transform:", np.unique(instrument_mask)) #maschera tutta  0
+            #print("mask unique after transform:", np.unique(instrument_mask)) #maschera tutta  0
             instrument_mask = torch.tensor(instrument_mask[:,:,0], dtype=torch.float32)
         else:
             image = ToTensor()(image)  # [3, H, W]

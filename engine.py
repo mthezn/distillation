@@ -23,6 +23,7 @@ import random
 from losses import DistillationLoss
 import utils
 from repvit_sam import SamPredictor
+
 from utility import save_binary_mask, calculate_iou, predict_points_boxes,predict_boxes,get_bbox_centroids
 
 def train_one_epoch(model,
@@ -155,13 +156,13 @@ def train_one_epoch_fine(model,
 
 
             image_embeddings = model.image_encoder(image)  # -> dict con "image_embed"
-            low_res_stud, _ = model.mask_decoder(
-                image_embeddings=image_embeddings,  # dict
-                image_pe=model.prompt_encoder.get_dense_pe(),
+            #low_res_stud, _ = model.mask_decoder(
+             #   image_embeddings=image_embeddings,  # dict
+              #  image_pe=model.prompt_encoder.get_dense_pe(),
 
-                multimask_output=False
-            )  # low_res_stud -> logits
-
+               # multimask_output=False
+            #)  # low_res_stud -> logits
+            low_res_stud = model.mask_decoder(image_embeddings)  #versione per rete unet
             low_res_stud = model.postprocess_masks(low_res_stud, (1024, 1024), (1024, 1024))
             mask = low_res_stud > model.mask_threshold
             iou = calculate_iou(mask, label)
@@ -313,22 +314,22 @@ def train_one_epoch_auto(model,
 
 
             image_embeddings = student.image_encoder(image)  # -> dict con "image_embed"
-            low_res_stud, _ = student.mask_decoder(
-                    image_embeddings=image_embeddings,  # dict
-                    image_pe=student.prompt_encoder.get_dense_pe(),
+            #low_res_stud, _ = student.mask_decoder(
+                   # image_embeddings=image_embeddings,  # dict
+                    #image_pe=student.prompt_encoder.get_dense_pe(),
 
 
-                    multimask_output=False
-                ) #low_res_stud -> logits
+                    #multimask_output=False
+                #) #low_res_stud -> logits
                 
-
+            low_res_stud = student.mask_decoder(image_embeddings)  # versione per rete unet
             low_res_stud = student.postprocess_masks(low_res_stud, (1024, 1024), (1024, 1024))
             mask = low_res_stud > student.mask_threshold
             iou = calculate_iou(mask, maskunion)
 
 
             if iou > 0.89:
-                save_binary_mask(low_res_stud.detach().cpu().numpy() >0 , epoch, random.randint(0,100), output_dir="binary_masks_train")
+                #save_binary_mask(low_res_stud.detach().cpu().numpy() >0 , epoch, random.randint(0,100), output_dir="binary_masks_train")
 
                 print(f"Saved binary mask for epoch {epoch}, batch {i}")
 
@@ -492,13 +493,14 @@ def validate_one_epoch_fine(model,
 
 
                 image_embeddings = model.image_encoder(image)
-
+                """
                 low_res_stud, _ = model.mask_decoder(
                     image_embeddings=image_embeddings,  # dict
                     image_pe=model.prompt_encoder.get_dense_pe(),
 
                     multimask_output=False
-                )
+                )"""
+                low_res_stud = model.mask_decoder(image_embeddings)  # versione per rete unet
                 low_res_stud = model.postprocess_masks(low_res_stud, (1024, 1024), (1024, 1024))
 
                 for i in range(low_res_stud.shape[0]):
@@ -636,19 +638,21 @@ def validate_one_epoch_auto(
                 iou = calculate_iou(maskunion_teach, low_res.detach().cpu().numpy()>0)
 
                 if iou > 0.9:
-                    save_binary_mask((low_res.detach().cpu().numpy() > 0), epoch, random.randint(0,100), output_dir="binary_masks_validation")
+                    #save_binary_mask((low_res.detach().cpu().numpy() > 0), epoch, random.randint(0,100), output_dir="binary_masks_validation")
 
                     print(f"Saved binary mask for epoch {epoch}, batch {i}")
                 results_teach.append(maskunion_teach)
 
                 image_embeddings = student.image_encoder(image)
 
-                low_res_stud, _ = student.mask_decoder(
-                    image_embeddings=image_embeddings,  # dict
-                    image_pe=student.prompt_encoder.get_dense_pe(),
+                #low_res_stud, _ = student.mask_decoder(
+                   # image_embeddings=image_embeddings,  # dict
+                    #image_pe=student.prompt_encoder.get_dense_pe(),
 
-                    multimask_output=False
-                )
+                    #multimask_output=False
+                #)
+
+                low_res_stud = student.mask_decoder(image_embeddings)  # versione per rete unet
                 low_res_stud = student.postprocess_masks(low_res_stud, (1024, 1024), (1024, 1024)) 
 
                 for i in range(low_res_stud.shape[0]):

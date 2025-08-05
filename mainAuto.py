@@ -13,7 +13,7 @@ import numpy as np
 import torch.nn as nn
 from engine import train_one_epoch_auto, validate_one_epoch_auto
 from torch.utils.data import ConcatDataset
-
+import os
 from timm.optim import create_optimizer_v2
 from timm.utils import NativeScaler
 import torch
@@ -25,7 +25,7 @@ from utility import generate_random_name, contains_instrument
 
 
 wandb.login(key='14497a5de45116d579bde37168ccf06f78c2928e')  # Replace 'your_api_key' with your actual API key
-name = "autoSamVitH"+generate_random_name(5)
+name = "autoSamVitHUnet"+generate_random_name(5)
 
 datasetCholec = load_dataset("minwoosun/CholecSeg8k", trust_remote_code=True)
 
@@ -54,6 +54,7 @@ sam= sam_model_registry["vit_h"](checkpoint=sam_checkpoint).to(device=device)
 
 
 model = sam_model_registry["CMT"](checkpoint=None)
+
 model.load_state_dict(torch.load(teacher_checkpoint, map_location=device), strict=False)  # Load the state dict into the model
 
 
@@ -74,7 +75,7 @@ for param in sam.mask_decoder.parameters():
 
 #MODELLO STUDENT
 
-student = sam_model_registry["autoSam"]()
+student = sam_model_registry["autoSamUnet"]()
 cloned_image_encoder = copy.deepcopy(model.image_encoder)  # Clone the image encoder
 cloned_image_encoder.load_state_dict(model.image_encoder.state_dict())  # Copy the weights
 student.image_encoder = cloned_image_encoder
@@ -133,7 +134,7 @@ run = wandb.init(
     # Track hyperparameters and run metadata.
     config={
         "learning_rate": lr,
-        "architecture": "CMT/autoSam",
+        "architecture": "CMT/Unet",
         "dataset": "Miccai",
         "epochs": epochs,
         "criterion": "DiceLoss",
@@ -212,7 +213,7 @@ for images, masks in dataloader:
 patience = 5  # Number of epochs to wait for improvement
 best_val_loss = float('inf')
 epochs_no_improve = 0
-checkpoint_path = "checkpoints/26_05/" + name+".pth"
+checkpoint_path = "checkpoints/28_07/" + name+".pth"
 
 torch.cuda.empty_cache()
 gc.collect()

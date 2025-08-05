@@ -113,10 +113,10 @@ def refining(mask):
 
 ########################################################################################################
 
-image_dirs_val = ["MICCAI/instrument_1_4_testing/instrument_dataset_1/left_frames"]
-mask_dirs_val = ["MICCAI/instrument_2017_test/instrument_2017_test/instrument_dataset_1/gt/BinarySegmentation"]
-image_dirs_leeds = ["leeds/left"]
-image_dirs_val = ["cat1_test_set_public/frames1"]
+image_dirs_val = ["MICCAI/instrument_1_4_testing/instrument_dataset_4/left_frames"]
+mask_dirs_val = ["MICCAI/instrument_2017_test/instrument_2017_test/instrument_dataset_4/gt/BinarySegmentation"]
+#image_dirs_leeds = ["leeds/left"]
+#image_dirs_val = ["cat1_test_set_public/frames1"]
 image_dirs_train = [
 
     "MICCAI/instrument_1_4_training/instrument_dataset_1/left_frames",
@@ -141,6 +141,7 @@ def contains_instrument(example):
 datasetCholec = load_dataset("minwoosun/CholecSeg8k", trust_remote_code=True)
 
 filtered_ds = datasetCholec['train'].filter(contains_instrument)
+print(len(filtered_ds))
 datasetTest = ImageMaskDataset(image_dirs=image_dirs_val, mask_dirs=None, transform=validation_transform,
                                )
 #datasetTest = CholecDataset(hf_dataset=datasetCholec['train'], transform=validation_transform)
@@ -149,8 +150,8 @@ dataloaderTest = DataLoader(datasetTest, batch_size=2, shuffle=True)
 
 # CARICO UN MODELLO SAM
 # sam_checkpoint = "C:/Users/User/OneDrive - Politecnico di Milano/Documenti/POLIMI/Tesi/distillation/checkpoints/sam_vit_b_01ec64.pth"
-autosam_checkpoint = "checkpoints/23_06/autoSamRandom68v4F.pth"
-model_type = "autoSam"
+autosam_checkpoint = "checkpoints/28_07/autoSamFineUnetMUcH0.pth"
+model_type = "autoSamUnet"
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -198,12 +199,14 @@ for images, labels in dataloaderTest:  # i->batch index, images->batch of images
         #plt.axis('off')
         start_time = time.time()
         image_embedding = model.image_encoder(image)
+        """""
         low_res, _ = model.mask_decoder(
             image_embeddings=image_embedding,  # dict
             image_pe=model.prompt_encoder.get_dense_pe(),
 
             multimask_output=False
-        )
+        ) """
+        low_res = model.mask_decoder(image_embedding) #per rete unet
         low_res = model.postprocess_masks(low_res,(1024,1024),(1024,1024))
         mask = low_res >0
         end_time = time.time()

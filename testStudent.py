@@ -61,8 +61,8 @@ model.load_state_dict(state_dict)
 #CARICO UN MODELLO SAM
 
 
-sam_checkpoint = "C:/Users/User/Downloads/weight/weight/mobile_sam.pt"
-model_type = "vit_t"
+sam_checkpoint = "checkpoints/repvit_sam.pt"
+model_type = "repvit"
 
 
 device = "cuda" if torch.cuda.is_available() else "cpu"

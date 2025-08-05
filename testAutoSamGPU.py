@@ -146,12 +146,14 @@ dataloaderTest = DataLoader(datasetTest, batch_size=2, shuffle=True)
 
 # CARICO UN MODELLO SAM
 # sam_checkpoint = "C:/Users/User/OneDrive - Politecnico di Milano/Documenti/POLIMI/Tesi/distillation/checkpoints/sam_vit_b_01ec64.pth"
-autosam_checkpoint = "checkpoints/26_05/autoSamKlnmJ.pth"
-model_type = "autoSam"
+autosam_checkpoint = "checkpoints/28_07/autoSamFineUnetMUcH0.pth"
+model_type = "autoSamUnet"
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-model = sam_model_registry[model_type](checkpoint=autosam_checkpoint)
+model = sam_model_registry[model_type](checkpoint=None)
+model.load_state_dict(torch.load(autosam_checkpoint, map_location=device))
+
 
 model.to(device=device)
 
@@ -192,14 +194,17 @@ for images, labels in dataloaderTest:  # i->batch index, images->batch of images
 
         start_time = time.time()
         image_embedding = model.image_encoder(image)
-        low_res, _ = model.mask_decoder(
-            image_embeddings=image_embedding,  # dict
-            image_pe=model.prompt_encoder.get_dense_pe(),
+        #low_res, _ = model.mask_decoder(
+            #image_embeddings=image_embedding,  # dict
+            #image_pe=model.prompt_encoder.get_dense_pe(),
 
-            multimask_output=False
-        )
+            #multimask_output=False
+        #)
+        low_res = model.mask_decoder(image_embedding)
         low_res = model.postprocess_masks(low_res,(1024,1024),(1024,1024))
         mask = low_res >0
+       # mask = mask.to(torch.uint8)
+        #mask = refining(mask)
         end_time = time.time()
         mask = mask.cpu().numpy()
 
@@ -218,7 +223,7 @@ for images, labels in dataloaderTest:  # i->batch index, images->batch of images
 
 
 
-        mask = refining(mask)
+
 
         values, counts = np.unique(mask, return_counts=True)  # mask.cpu().numpy()
         #print("unique", values)
