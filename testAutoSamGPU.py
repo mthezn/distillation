@@ -6,9 +6,8 @@ from matplotlib import pyplot as plt
 import numpy as np
 import time
 import cv2
-
-from Dataset import ImageMaskDataset,CholecDataset
-import torch
+import torch    
+from Dataset import ImageMaskDataset,CholecDataset, MMIDataset
 from torch.utils.data import DataLoader
 from modeling.build_sam import sam_model_registry
 from utility import dice_coefficient,sensitivity,specificity
@@ -110,8 +109,11 @@ def refining(mask):
 
 ########################################################################################################
 
-image_dirs_val = ["MICCAI/instrument_1_4_testing/instrument_dataset_4/left_frames"]
-mask_dirs_val = ["MICCAI/instrument_2017_test/instrument_2017_test/instrument_dataset_4/gt/BinarySegmentation"]
+#clean gpu before running the script
+torch.cuda.empty_cache()
+
+image_dirs_val = ["/home/shared-nearmrs/mdezenDatasets/MICCAI/instrument_1_4_testing/instrument_dataset_4/left_frames"]
+mask_dirs_val = ["/home/shared-nearmrs/mdezenDatasets/MICCAI/instrument_2017_test/instrument_2017_test/instrument_dataset_4/gt/BinarySegmentation"]
 #image_dirs_val = ["MICCAI/instrument_1_4_training/instrument_dataset_4/left_frames"]
 #mask_dirs_val = ["MICCAI/instrument_1_4_training/instrument_dataset_4/ground_truth/Large_Needle_Driver_Left_labels"]
 image_dirs_train = [
@@ -119,9 +121,9 @@ image_dirs_train = [
     "MICCAI/instrument_1_4_training/instrument_dataset_1/left_frames",
 ]
 mask_dirs_train = [
-    "MICCAI/instrument_1_4_training/instrument_dataset_1/ground_truth/Left_Prograsp_Forceps_labels",
-    "MICCAI/instrument_1_4_training/instrument_dataset_1/ground_truth/Maryland_Bipolar_Forceps_labels",
-    "MICCAI/instrument_1_4_training/instrument_dataset_1/ground_truth/Right_Prograsp_Forceps_labels"]
+    "/home/shared-nearmrs/mdezenDatasets/MICCAI/instrument_1_4_training/instrument_dataset_1/ground_truth/Left_Prograsp_Forceps_labels",
+    "/home/shared-nearmrs/mdezenDatasets/MICCAI/instrument_1_4_training/instrument_dataset_1/ground_truth/Maryland_Bipolar_Forceps_labels",
+    "/home/shared-nearmrs/mdezenDatasets/MICCAI/instrument_1_4_training/instrument_dataset_1/ground_truth/Right_Prograsp_Forceps_labels"]
 
 validation_transform = A.Compose([
     A.Resize(1024,1024),
@@ -137,30 +139,46 @@ def contains_instrument(example):
 
 #datasetCholec = load_dataset("minwoosun/CholecSeg8k", trust_remote_code=True)
 
-#filtered_ds = datasetCholec['train'].filter(contains_instrument)
-datasetTest = ImageMaskDataset(image_dirs=image_dirs_val, mask_dirs=mask_dirs_val, transform=validation_transform,
-                               )
+#filtered_ds = datasetCholec['train'].filter(contains_instrument)                             
 #datasetTest = CholecDataset(hf_dataset=filtered_ds, transform=validation_transform)
-dataloaderTest = DataLoader(datasetTest, batch_size=2, shuffle=True)
+
+datasetTest = ImageMaskDataset(image_dirs=image_dirs_val, mask_dirs=mask_dirs_val, transform=validation_transform,)
+dataloaderTest = DataLoader(datasetTest, batch_size=1, shuffle=True)
+#dataset_mmi = "./dataset_mmi_1807"
+#datasetTest = MMIDataset(root_dir=dataset_mmi, split='test', transform=validation_transform, num_classes=1)
+#dataloaderTest = DataLoader(datasetTest, batch_size = 1, shuffle = False)
 
 
 # CARICO UN MODELLO SAM
 # sam_checkpoint = "C:/Users/User/OneDrive - Politecnico di Milano/Documenti/POLIMI/Tesi/distillation/checkpoints/sam_vit_b_01ec64.pth"
-autosam_checkpoint = "checkpoints/26_05/autoSamKlnmJ.pth"
-model_type = "autoSam"
+#autosam_checkpoint = "checkpoints/26_05/autoSamKlnmJ.pth"
+#autosam_checkpoint = "/home/shared-nearmrs/mdezenDatasets/autoSamFineVitHSuOkl.pth"
+autosam_checkpoint = "weights/autoSamFineUnetMUcH0.pth"
+model_type = "autoSamUnet"
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-model = sam_model_registry[model_type](checkpoint=autosam_checkpoint)
+#model = sam_model_registry[model_type](checkpoint=autosam_checkpoint)
+#model.to(device=device)
 
+
+model = sam_model_registry[model_type](checkpoint=None)
+state_dict = torch.load(autosam_checkpoint, map_location=device)
+model.load_state_dict(state_dict, strict=False)  # Load the state dict into the model
 model.to(device=device)
 
-
+print("Size of model.image_encoder:", sum(p.numel() for p in model.image_encoder.parameters() if p.requires_grad))
 model.eval()
-
-
+device_id = torch.cuda.current_device()
+#print("Model laoded from", autosam_checkpoint)
+#print("Memory Allocated (MB):", torch.cuda.memory_allocated(device_id) / 1024**2)
+#print("Memory Cached (MB):", torch.cuda.memory_reserved(device_id) / 1024**2)
 # predictor = SamPredictor(model)
 timeDf = pd.DataFrame(columns=['time', 'index', 'iou','dice','sensitivity','specificity'])
+
+outdir = 'RISULTATI/'
+import os
+os.makedirs(outdir, exist_ok=True)
 
 for images, labels in dataloaderTest:  # i->batch index, images->batch of images, labels->batch of labels
 
@@ -186,19 +204,20 @@ for images, labels in dataloaderTest:  # i->batch index, images->batch of images
         # converti in float32 se necessario
      # manca batch dimensione
         image = image.unsqueeze(0)
-
+        image_memory = image.element_size() * image.nelement() / (1024 ** 2)
             # Convert to binary mask
         # label = (label > 0).astype(np.uint8)
-
         start_time = time.time()
         image_embedding = model.image_encoder(image)
-        low_res, _ = model.mask_decoder(
-            image_embeddings=image_embedding,  # dict
-            image_pe=model.prompt_encoder.get_dense_pe(),
+        #low_res, _ = model.mask_decoder(
+        #    image_embeddings=image_embedding,  # dict
+        #    image_pe=model.prompt_encoder.get_dense_pe(),
 
-            multimask_output=False
-        )
+        #    multimask_output=False
+        #)
+        low_res = model.mask_decoder(image_embedding)
         low_res = model.postprocess_masks(low_res,(1024,1024),(1024,1024))
+
         mask = low_res >0
         end_time = time.time()
         mask = mask.cpu().numpy()
@@ -208,23 +227,14 @@ for images, labels in dataloaderTest:  # i->batch index, images->batch of images
         print("unique", values)
         print("values", counts)
         # Visualizza la maschera raw
-
-
         # Applica soglia
         binary_mask = (low_res > 0)
-
-
-
-
-
 
         mask = refining(mask)
 
         values, counts = np.unique(mask, return_counts=True)  # mask.cpu().numpy()
         #print("unique", values)
         #print("counts", counts)
-
-
 
         plt.axis('off')
         plt.show()
@@ -237,8 +247,26 @@ for images, labels in dataloaderTest:  # i->batch index, images->batch of images
 
         timeDf.loc[len(timeDf)] = [latency, len(timeDf), iou,dice,sens,spec]
 
+        fig, axs = plt.subplots(1, 3, figsize=(15, 5))
+        axs[0].imshow(image.squeeze().detach().cpu().permute(1, 2, 0).numpy() * 0.5 + 0.5)
+        axs[0].set_title('Image')
+        axs[0].axis('off')
 
-timeDf.to_csv('RISULTATI/TimeDfBBoxAutoSam.csv', index=False)
+        axs[1].imshow(mask, cmap='gray')
+        axs[1].set_title('Prediction')
+        axs[1].axis('off')
+
+        axs[2].imshow(label.squeeze(), cmap='gray')
+        axs[2].set_title('Ground Truth')
+        axs[2].axis('off')
+
+        plt.tight_layout()
+        save_path = os.path.join(outdir, f"result_{len(timeDf)-1}.png")
+        #plt.savefig(save_path, bbox_inches='tight')
+        plt.close(fig)
+        #input("")
+
+timeDf.to_csv(f'{outdir}/TimeDfBBoxAutoSam.csv', index=False)
 pd.set_option('display.max_rows', None)
 print(timeDf)
 

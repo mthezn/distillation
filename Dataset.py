@@ -7,7 +7,7 @@ import albumentations as A
 from albumentations.pytorch import ToTensorV2
 import torch
 from torchvision.transforms import ToTensor
-
+import cv2
 class ImageMaskDataset(Dataset):
     """
     Class: ImageMaskDataset
@@ -121,7 +121,179 @@ class ImageMaskDataset(Dataset):
             return image, combined_mask
 
 
+class MMIDataset(Dataset):
+    def __init__(self, root_dir, split='train', transform=None, num_classes=3):
+        """
+        Args:
+            root_dir (str): Root folder with 'images' and 'labels' subfolders.
+            split (str): 'train', 'valid', or 'test'.
+            transform (callable, optional): Image transforms.
+            target_transform (callable, optional): Label transforms.
+        """
+        self.image_dir = os.path.join(root_dir, 'images', split)
+        self.label_dir = os.path.join(root_dir, 'labels', split)
+        self.label_dir_png = os.path.join(root_dir, 'labels_png', split)
+        self.transform = transform
+        self.png_labels = False  # Default to text labels
+        self.split = split
+        self.num_classes = num_classes
 
+        if not os.path.exists(self.label_dir_png):
+            print("Warning: No PNG labels directory provided, using text labels instead.")
+            self.png_labels = True
+        self.samples = []
+        
+        for fname in sorted(os.listdir(self.image_dir)):#[:100]:
+            if fname.lower().endswith(('.jpg', '.png', '.jpeg', '.bmp')):
+                img_path = os.path.join(self.image_dir, fname)
+                if self.png_labels:
+                    label_path = os.path.join(self.label_dir_png, os.path.splitext(fname)[0] + '_mask.png')
+                    if os.path.exists(label_path):
+                        #print(f"Found label for {fname} in PNG format.")
+                        self.samples.append((img_path, label_path))
+                    else:
+                        print(f"Warning: no label for {fname} in PNG format, skipping.")
+                else:
+                    label_path = os.path.join(self.label_dir, os.path.splitext(fname)[0] + '.txt')
+                    if os.path.exists(label_path):
+                        self.samples.append((img_path, label_path))
+                    else:
+                        print(f"Warning: no label for {fname}, skipping.")
+
+    def __len__(self):
+        return len(self.samples)
+
+    def __getitem__(self, idx):
+        # Load first image and mask
+        img_path, label_path = self.samples[idx]
+        image = np.array(Image.open(img_path).convert('RGB'))
+
+        if self.png_labels:
+            mask = np.array(Image.open(label_path).convert('L'), dtype=np.uint8)
+            mask = (mask > 0).astype(np.uint8)
+        else:
+            polygons = []
+            with open(label_path, 'r') as f:
+                for line in f:
+                    values = line.strip().split()
+                    if len(values) >= 7 and (len(values) - 1) % 2 == 0:
+                        class_id = int(values[0])
+                        coords = list(map(float, values[1:]))
+                        polygon = [class_id] + coords
+                        polygons.append(polygon)
+            image_size = (image.shape[0], image.shape[1])
+            if self.num_classes > 1:
+                mask = self.polygon_to_mask(image.shape[:2], polygons, self.num_classes)
+            else:
+                mask = self.polygon_to_mask(image.shape[:2], polygons)
+                #mask = self.polygon_to_mask(image_size, polygons)
+
+        # ----- CutMix augmentation -----
+        if self.split == 'train' and random.random() < 0.0:
+            # Sample a second random image and mask
+            idx2 = random.randint(0, len(self.samples) - 1)
+            img_path2, label_path2 = self.samples[idx2]
+            image2 = np.array(Image.open(img_path2).convert('RGB'))
+
+            if self.png_labels:
+                mask2 = np.array(Image.open(label_path2).convert('L'), dtype=np.uint8)
+                mask2 = (mask2 > 0).astype(np.uint8)
+            else:
+                polygons2 = []
+                with open(label_path2, 'r') as f:
+                    for line in f:
+                        values = line.strip().split()
+                        if len(values) >= 7 and (len(values) - 1) % 2 == 0:
+                            class_id = int(values[0])
+                            coords = list(map(float, values[1:]))
+                            polygon = [class_id] + coords
+                            polygons2.append(polygon)
+                image_size2 = (image2.shape[0], image2.shape[1])
+                if self.num_classes > 1:
+                    mask2 = self.polygon_to_mask(image_size2, polygons2, self.num_classes)
+                else:   
+                    mask2 = self.polygon_to_mask(image_size2, polygons2)
+
+            # Apply CutMix
+            image, mask = self.apply_cutmix(image, mask, image2, mask2)
+
+        # Apply transforms
+        if self.transform:
+            augmented = self.transform(image=image, mask=mask)
+            image = augmented["image"]
+            mask = augmented["mask"]
+
+        return image, mask
+
+
+    @staticmethod
+    def polygon_to_mask(image_size, polygons):
+        """
+        Creates a binary mask from polygons, ignoring class ID.
+
+        Args:
+            image_size (tuple): (height, width)
+            polygons (list of list): Each sublist = [class_id, x1, y1, ..., xn, yn]
+
+        Returns:
+            np.ndarray: Binary mask (height, width), dtype=np.uint8
+        """
+        mask = np.zeros(image_size, dtype=np.uint8)
+        for poly in polygons:
+            coords = poly[1:]  # skip class_id
+            # Rescale points to fit image_size
+            coords = np.array(coords, dtype=np.float32).reshape((-1, 2))
+            h, w = image_size
+            # Assume original coordinates are in [0, 1] range, scale to image size
+            if coords.max() <= 1.0:
+                coords[:, 0] *= w
+                coords[:, 1] *= h
+            pts = coords.astype(np.int32)
+            cv2.fillPoly(mask, [pts], color=1)
+
+        return mask
+
+    def polygon_to_multimask(image_size, polygons, num_classes=3):
+        """
+        Creates a multiclass mask from polygon annotations.
+
+        Args:
+            image_size (tuple): (height, width)
+            polygons (list of list): Each sublist = [class_id, x1, y1, ..., xn, yn]
+            num_classes (int): Number of classes (excluding background)
+
+        Returns:
+            np.ndarray: Multiclass mask (H, W), dtype=np.uint8
+        """
+        mask = np.zeros(image_size, dtype=np.uint8)  # background is 0
+
+        for poly in polygons:
+            class_id = poly[0] + 1  # +1 to reserve 0 for background
+            coords = poly[1:]
+            coords = np.array(coords, dtype=np.float32).reshape((-1, 2))
+            h, w = image_size
+            if coords.max() <= 1.0:
+                coords[:, 0] *= w
+                coords[:, 1] *= h
+            pts = coords.astype(np.int32)
+            cv2.fillPoly(mask, [pts], color=class_id)
+
+        return mask
+
+    def apply_cutmix(self, image1, mask1, image2, mask2):
+        """Apply CutMix augmentation between two image-mask pairs."""
+        h, w, _ = image1.shape
+
+        cut_w = random.randint(w // 4, w // 2)
+        cut_h = random.randint(h // 4, h // 2)
+        x1 = random.randint(0, w - cut_w)
+        y1 = random.randint(0, h - cut_h)
+        x2, y2 = x1 + cut_w, y1 + cut_h
+
+        image1[y1:y2, x1:x2, :] = image2[y1:y2, x1:x2, :]
+        mask1[y1:y2, x1:x2] = mask2[y1:y2, x1:x2]
+
+        return image1, mask1
 
 class CholecDataset(Dataset):
     """

@@ -25,6 +25,30 @@ import utils
 from repvit_sam import SamPredictor
 from utility import save_binary_mask, calculate_iou, predict_points_boxes,predict_boxes,get_bbox_centroids
 
+from pathlib import Path
+import torch
+import json
+
+def validate_batch(preds, targets, is_logits=True, phase="train"):
+    assert preds.shape == targets.shape, f"[{phase}] Shape mismatch: preds {preds.shape}, targets {targets.shape}"
+
+    if is_logits:
+        preds_sigmoid = torch.sigmoid(preds)
+    else:
+        preds_sigmoid = preds
+
+    preds_min, preds_max = preds_sigmoid.min().item(), preds_sigmoid.max().item()
+    targets_min, targets_max = targets.min().item(), targets.max().item()
+
+    print(f"[{phase}] Preds sigmoid range: {preds_min:.4f} to {preds_max:.4f}")
+    print(f"[{phase}] Targets range: {targets_min:.4f} to {targets_max:.4f}")
+
+    assert 0.0 <= preds_min <= 1.0 and 0.0 <= preds_max <= 1.0, f"[{phase}] Prediction values out of bounds after sigmoid"
+    assert 0.0 <= targets_min <= 1.0 and 0.0 <= targets_max <= 1.0, f"[{phase}] Target values should be between 0 and 1"
+
+    unique_vals = torch.unique(targets)
+    print(f"[{phase}] Target unique values: {unique_vals}")
+
 def train_one_epoch(model,
                     teacher,
                     epoch,
@@ -116,89 +140,210 @@ def train_one_epoch(model,
     return epoch_loss
 
 
-def train_one_epoch_fine(model,
+def train_one_epoch_fine_old(model,
+                        dataloader,
+                        optimizer,
+                        device,
+                        epoch,
+                        criterion,
+                        path,      
+                        headless=False,
+                        mixed_precision: bool = True,
+                        grad_accum_steps: int = 1):
 
-                         dataloader,
-                         optimizer,
-                         device,
-                         run,
-                         epoch,
-                         criterion
-                         ):
+    model.train()
+    scaler = torch.amp.GradScaler(enabled=mixed_precision)  # Enable mixed precision training
 
-    bar = tqdm(enumerate(dataloader), total=len(dataloader), desc=f"Epoch {epoch}")
-    running_loss = 0.0
-    dataset_size = 0
-    epoch_loss = 0.0
-    scaler = torch.amp.GradScaler()
-    predictor = SamPredictor(model)
+    running_loss, seen = 0.0, 0
+    bar = tqdm(dataloader, desc=f"Train Epoch {epoch}")
 
-    for i, (images, labels) in bar:  # i->batch index, images->batch of images, labels->batch of labels
-        images = images.to(device)
-        labels = labels.to(device)
+    
+    for step, (images, labels) in enumerate(bar):
+        loss = 0.0
+    
+        images = images.to(device, dtype=torch.float32, non_blocking=True)
+        labels = (labels > 0).to(device, dtype=torch.float32, non_blocking=True)
+        labels = labels.unsqueeze(1)           
+        #if not headless:
+        #    prediction = []
+        
+        optimizer.zero_grad(set_to_none=True)
+        with torch.amp.autocast(device_type="cuda", enabled=mixed_precision):
+            batch_loss = 0.0
+            for image, label in zip(images, labels):
+                # Convert the label to a binary mask
+                image = image.unsqueeze(0)  # B, C, H, W
+                label = label.unsqueeze(0)
 
+                img_emb = model.image_encoder(image)         
+                pred_logits, _ = model.mask_decoder(
+                    image_embeddings=img_emb,
+                    image_pe=model.prompt_encoder.get_dense_pe(),
+                    multimask_output=False
+                )                                              # (B,1,H',W')
 
-        results_stud = []
-        label_list = []
+                pred_logits = model.postprocess_masks(
+                    pred_logits, (1024, 1024), (1024, 1024))  
+                
+                loss = criterion(pred_logits, label)
+                batch_loss += loss
+                #if not headless:
+                #    prediction.append(pred_logits)
 
-        for image, label in zip(images, labels):
-            # Convert the mask to a binary mask
-            label = label.detach().cpu().numpy()
-            #label = label.unsqueeze()  # Assicurati che sia 2D
-            label = (label > 0).astype(np.uint8)  # Assicurati che sia 2D
-            label_list.append(label)
-
-
-            image_array = image.cpu().numpy()
-            image = image.unsqueeze(0)  # B, C, H, W
-
-
-
-            image_embeddings = model.image_encoder(image)  # -> dict con "image_embed"
-            low_res_stud, _ = model.mask_decoder(
-                image_embeddings=image_embeddings,  # dict
-                image_pe=model.prompt_encoder.get_dense_pe(),
-
-                multimask_output=False
-            )  # low_res_stud -> logits
-
-            low_res_stud = model.postprocess_masks(low_res_stud, (1024, 1024), (1024, 1024))
-            mask = low_res_stud > model.mask_threshold
-            iou = calculate_iou(mask, label)
-
-
-
-            for i in range(low_res_stud.shape[0]):
-                low_res_stud_temp = low_res_stud[i].float()
-                # maskunion_stud = torch.max(maskunion_stud, mask.float())
-
-                results_stud.append(low_res_stud_temp)
-
-
-        results_label = torch.stack([torch.tensor(label) for label in label_list]).to(device)
-        results_stud = torch.stack(results_stud).to(device)
-
-        loss = criterion(results_stud,results_label.float())
-        # print("loss", loss)
-
-        if torch.isfinite(loss):
-            scaler.scale(loss).backward()
+            scaler.scale(batch_loss / grad_accum_steps).backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             scaler.step(optimizer)
             scaler.update()
-        else:
-            print(f"Skipping step at batch {i} due to non-finite loss: {loss}")
-            optimizer.zero_grad(set_to_none=True)
-            continue  # salta al batch successivo
+            #loss = loss / grad_accum_steps    
+            #loss.backward()
+            #optimizer.step()
+            #optimizer.zero_grad()
+            #torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
 
-        # Update progress
-        batch_size = images.shape[0]
-        running_loss += loss.item() * batch_size
-        dataset_size += batch_size
-        epoch_loss = running_loss / dataset_size
-        bar.set_description(f"Loss: {loss.item()}")
-        run.log({"train_loss": epoch_loss, "epoch": epoch + 1, "batch": i + 1})
-        bar.set_postfix(Epoch=epoch, Train_loss=epoch_loss, LR=optimizer.param_groups[0]['lr'])
-    return epoch_loss
+            batch_sz = images.size(0)
+            running_loss += batch_loss.item() * grad_accum_steps
+            seen += batch_sz
+            bar.set_description(f"Epoch {epoch} | Loss {loss.item():.4f}")
+            bar.set_postfix(avg_loss=running_loss / seen,
+                            lr=optimizer.param_groups[0]['lr'])
+
+            #if not headless and step % 50 == 0:     # plot at most every N batches
+            #    with torch.no_grad():               # no graph‑tracking
+            #        fig, axs = plt.subplots(1, 3, figsize=(9, 3))
+            #        # original image -----------------------------------
+            #        img = images[0].detach().cpu()
+            #        img_np = img.permute(1, 2, 0).numpy()
+            #        if img_np.max() > 1: img_np /= 255
+            #        axs[0].imshow(img_np.squeeze(),
+            #                        cmap='gray' if img_np.shape[-1] == 1 else None)
+            #        axs[0].set_title('Image');  axs[0].axis('off')
+            #        # prediction ---------------------------------------
+            #        axs[1].imshow((prediction[0][0, 0] > model.mask_threshold
+            #                        ).detach().cpu(), cmap='gray')
+            #        axs[1].set_title('Pred');  axs[1].axis('off')
+            #        # ground‑truth -------------------------------------
+            #        axs[2].imshow(labels[0, 0].detach().cpu(), cmap='gray')
+            #        axs[2].set_title('GT');    axs[2].axis('off')
+
+            #        fig.tight_layout()
+            #        #print("Saving images to", path)
+            #        fig.savefig(f"{path}/epoch{epoch}_step{step}_id{0}.png")
+            #        plt.close(fig)             # free host‑RAM :contentReference[oaicite:1]{index=1}
+        
+    return running_loss / seen
+
+def train_one_epoch_fine(model,
+                        dataloader,
+                        optimizer,
+                        device,
+                        epoch,
+                        criterion,
+                        path,      
+                        headless=False,
+                        mixed_precision: bool = True,
+                        grad_accum_steps: int = 1):
+
+    path = Path(path, "train")
+    os.makedirs(path, exist_ok=True)  # ensure the path exists
+
+    model.train()
+    running_loss, seen = 0.0, 0
+    running_dice, running_focal = 0.0, 0.0
+    bar = tqdm(dataloader, desc=f"Train Epoch {epoch}")
+
+    nan_count = 0
+    for step, (images, labels) in enumerate(bar):
+        batch_loss, dice, focal = 0.0, 0.0, 0.0
+    
+        images = images.to(device, dtype=torch.float32, non_blocking=True)
+        labels = (labels > 0).to(device, dtype=torch.float32, non_blocking=True)
+        labels = labels.unsqueeze(1)           
+        
+        if torch.isnan(images).any() or torch.isnan(labels).any():
+            print(f"NaN detected in input data at step {step}! Skipping batch.")
+            continue    
+        
+        if not headless:
+            prediction = []
+        
+        optimizer.zero_grad(set_to_none=True)
+
+        with torch.amp.autocast('cuda', enabled=True):
+            try: 
+                for image, label in zip(images, labels):
+                    # Convert the label to a binary mask
+                    image = image.unsqueeze(0)  # B, C, H, W
+                    label = label.unsqueeze(0)
+
+                    img_emb = model.image_encoder(image)         
+                    pred_logits, _ = model.mask_decoder(
+                        image_embeddings=img_emb,
+                        image_pe=model.prompt_encoder.get_dense_pe(),
+                        multimask_output=False
+                    )                                              # (B,1,H',W')
+
+                    pred_logits = model.postprocess_masks(
+                        pred_logits, (1024, 1024), (1024, 1024))  
+                    #validate_batch(pred_logits, label, is_logits=True, phase="train")
+                    loss, dice_contrib, focal_contrib = criterion(pred_logits, label)
+                    if torch.isnan(loss) or torch.isnan(dice_contrib) or torch.isnan(focal_contrib):
+                        print(f"NaN in loss computation at step {step}, sample {i}")
+                        print(f"Loss: {loss.item() if not torch.isnan(loss) else 'NaN'}")
+                        print(f"Dice: {dice_contrib.item() if not torch.isnan(dice_contrib) else 'NaN'}")
+                        print(f"Focal: {focal_contrib.item() if not torch.isnan(focal_contrib) else 'NaN'}")
+                        nan_count += 1
+                        continue
+                    batch_loss += loss
+                    dice += dice_contrib
+                    focal += focal_contrib
+                    if not headless:
+                        prediction.append(pred_logits)
+    
+                batch_loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                optimizer.step()
+                batch_sz = images.size(0)
+                
+                running_loss += batch_loss.item() * batch_sz
+                running_dice += dice.item() * batch_sz
+                running_focal += focal.item() * batch_sz
+                seen += batch_sz
+                bar.set_postfix(avg_loss=running_loss / seen,
+                                lr=optimizer.param_groups[0]['lr'])
+            
+            except RuntimeError as e:
+                if "out of memory" in str(e):
+                    print(f"CUDA OOM at step {step}, skipping batch")
+                    torch.cuda.empty_cache()
+                    continue
+                else:
+                    print(f"Runtime error at step {step}: {e}")
+                    raise e
+        
+        if not headless and step % 50 == 0:     # plot at most every N batches
+            with torch.no_grad():               # no graph‑tracking
+                fig, axs = plt.subplots(1, 3, figsize=(9, 3))
+                # original image -----------------------------------
+                img = images[0].detach().cpu()
+                img_np = img.permute(1, 2, 0).numpy()
+                if img_np.max() > 1: img_np /= 255
+                axs[0].imshow(img_np.squeeze(),
+                                cmap='gray' if img_np.shape[-1] == 1 else None)
+                axs[0].set_title('Image');  axs[0].axis('off')
+                # prediction ---------------------------------------
+                axs[1].imshow((prediction[0][0, 0] > model.mask_threshold
+                                ).detach().cpu(), cmap='gray')
+                axs[1].set_title('Pred');  axs[1].axis('off')
+                # ground‑truth -------------------------------------
+                axs[2].imshow(labels[0, 0].detach().cpu(), cmap='gray')
+                axs[2].set_title('GT');    axs[2].axis('off')
+
+                fig.tight_layout()
+                #print("Saving images to", path)
+                fig.savefig(f"{path}/epoch{epoch}_step{step}_id{0}.png")
+                plt.close(fig)   
+                  
+    return running_loss / seen, running_dice / seen, running_focal / seen
 
 
 def train_one_epoch_auto(model,
@@ -368,10 +513,6 @@ def train_one_epoch_auto(model,
     return epoch_loss
 
 
-
-
-
-
 def validate_one_epoch(
     model,
     teacher,
@@ -450,79 +591,173 @@ def validate_one_epoch(
 
     return epoch_loss
 
+               # ➊ disables autograd for the whole fn
 
-def validate_one_epoch_fine(model,
+def validate_one_epoch_fine_old(model,
+                            dataloader,
+                            device,
+                            epoch: int,
+                            criterion,
+                            mixed_precision: bool = True,
+                            path=None,
+                            headless=False):
 
-                         dataloader,
-
-                         device,
-                         run,
-                         epoch,
-                         criterion
-                         ):
     model.eval()
+    total_loss, seen = 0.0, 0
+    bar = tqdm(dataloader, desc=f"Valid Epoch {epoch}", leave=False)
 
-
-    running_loss = 0.0
-    dataset_size = 0
-    predictor = SamPredictor(model)
-
-    bar = tqdm(enumerate(dataloader), desc=f"[Val] Epoch {epoch}", leave=False)
-
+    #path = Path(path, "val")
+    #os.makedirs(path, exist_ok=True)
     with torch.no_grad():
+        for step, (images, labels) in enumerate(bar):
+            batch_loss = 0.0
+            # ------------------------------------------------------------------
+            # 1. ⇢ GPU (async)                           
+            # ------------------------------------------------------------------
+            images = images.to(device,  dtype=torch.float32, non_blocking=True)
+            labels = (labels > 0).to(device, dtype=torch.float32, non_blocking=True)
+            labels = labels.unsqueeze(1)            # (B,1,H,W) for BCE/Lovasz …
 
-        for i, (images, labels) in bar:  # i->batch index, images->batch of images, labels->batch of labels
-            images = images.to(device)
-
-            labels = labels.to(device)
-            label_list = []
-
-            results_stud = []
-
+            # ------------------------------------------------------------------
+            # 2. Forward pass (optional FP16)              
+            # ------------------------------------------------------------------
+            #if not headless:
+            #    prediction = []
             for image, label in zip(images, labels):
                 # Convert the label to a binary mask
-                label = label.detach().cpu().numpy()
+                image = image.unsqueeze(0)  # B, C, H, W
+                label = label.unsqueeze(0)
 
-                label = (label > 0).astype(np.uint8)
-                label_list.append(label)
-
-                image_array = image.cpu().numpy()
-                image = image.unsqueeze(0)
-
-
-
-                image_embeddings = model.image_encoder(image)
-
-                low_res_stud, _ = model.mask_decoder(
-                    image_embeddings=image_embeddings,  # dict
+                img_emb = model.image_encoder(image)          # (B, …)
+                pred_logits, _ = model.mask_decoder(
+                    image_embeddings=img_emb,
                     image_pe=model.prompt_encoder.get_dense_pe(),
-
                     multimask_output=False
-                )
-                low_res_stud = model.postprocess_masks(low_res_stud, (1024, 1024), (1024, 1024))
+                )                                              # (B,1,H',W')
 
-                for i in range(low_res_stud.shape[0]):
-                    low_res_temp = low_res_stud[i].float()
-                    results_stud.append(low_res_temp)
+                pred_logits = model.postprocess_masks(
+                    pred_logits, (1024, 1024), (1024, 1024))   # keep gradients
+                
+                loss = criterion(pred_logits, label)
+            #    if not headless:
+            #        prediction.append(pred_logits)
+                batch_loss += loss.item()
 
-            result_label = torch.stack([torch.tensor(label) for label in label_list]).to(device)
 
-             # for BCE with logits loss
+            bs = images.size(0)
+            total_loss += batch_loss / bs
+            seen += 1
+    
+            bar.set_postfix(avg_loss=total_loss / seen)
+            
+            #if not headless and path is not None and step % 50 == 0:
+            #    with torch.no_grad():
+            #        import matplotlib.pyplot as plt
+            #        fig, axs = plt.subplots(1, 3, figsize=(9, 3))
+            #        # original image -----------------------------------
+            #        img = images[0].detach().cpu()
+            #        img_np = img.permute(1, 2, 0).numpy()
+            #        if img_np.max() > 1: img_np /= 255
+            #        axs[0].imshow(img_np.squeeze(),
+            #                      cmap='gray' if img_np.shape[-1] == 1 else None)
+            #        axs[0].set_title('Image');  axs[0].axis('off')
+            #        # prediction ---------------------------------------
+            #        axs[1].imshow((prediction[0][0, 0] > model.mask_threshold
+            #                       ).detach().cpu(), cmap='gray')
+            #        axs[1].set_title('Pred');  axs[1].axis('off')
+            #        # ground‑truth -------------------------------------
+            #        axs[2].imshow(labels[0, 0].detach().cpu(), cmap='gray')
+            #        axs[2].set_title('GT');    axs[2].axis('off')
 
-            results_stud = torch.stack(results_stud).to(device)
+            #        fig.tight_layout()
+            #        #print("Saving images to", path)
+            #        fig.savefig(f"{path}/epoch{epoch}_step{step}_id{0}.png")
+            #        plt.close(fig)             # free host‑RAM
 
-            loss = criterion(results_stud, result_label.float())
+    return total_loss / seen
 
-            # Update progress
-            batch_size = images.shape[0]
-            running_loss += loss.item() * batch_size
-            dataset_size += batch_size
-            epoch_loss = running_loss / dataset_size
-            bar.set_description(f"Loss: {loss.item()}")
-            run.log({"val_loss": epoch_loss, "epoch": epoch + 1, "batch": i + 1})
-            bar.set_postfix(Epoch=epoch, Val_loss=epoch_loss)
 
-        return epoch_loss
+def validate_one_epoch_fine(model,
+                            dataloader,
+                            device,
+                            epoch: int,
+                            criterion,
+                            mixed_precision: bool = True,
+                            path=None,
+                            headless=False):
+
+    total_loss, seen = 0.0, 0
+    dice_loss, focal_loss = 0.0, 0.0
+    bar = tqdm(dataloader, desc=f"Valid Epoch {epoch}", leave=False)
+
+    path = Path(path, "val")
+    os.makedirs(path, exist_ok=True)
+
+    for step, (images, labels) in enumerate(bar):
+        batch_loss = 0.0
+        dice, focal = 0.0,0.0
+        # ------------------------------------------------------------------
+        # 1. ⇢ GPU (async)                           
+        # ------------------------------------------------------------------
+        images = images.to(device,  dtype=torch.float32, non_blocking=True)
+        labels = (labels > 0).to(device, dtype=torch.float32, non_blocking=True)
+        labels = labels.unsqueeze(1)            # (B,1,H,W) for BCE/Lovasz …
+
+        if not headless:
+            prediction = []
+        for image, label in zip(images, labels):
+            # Convert the label to a binary mask
+            image = image.unsqueeze(0)  # B, C, H, W
+            label = label.unsqueeze(0)
+
+            img_emb = model.image_encoder(image)          # (B, …)
+            pred_logits, _ = model.mask_decoder(
+                image_embeddings=img_emb,
+                image_pe=model.prompt_encoder.get_dense_pe(),
+                multimask_output=False
+            )                                              # (B,1,H',W')
+
+            pred_logits = model.postprocess_masks(
+                pred_logits, (1024, 1024), (1024, 1024))   # keep gradients
+            #validate_batch(pred_logits, label, is_logits=True, phase="valid")
+            loss, dice_contrib, focal_contrib = criterion(pred_logits, label)
+            batch_loss += loss.item()
+            dice += dice_contrib.item()
+            focal += focal_contrib.item()
+            if not headless:
+                prediction.append(pred_logits)
+
+        bs = images.size(0)
+        total_loss += batch_loss * bs
+        dice_loss += dice * bs
+        focal_loss += focal * bs
+        seen += bs
+        bar.set_postfix(avg_loss=total_loss / seen)
+
+        if not headless and path is not None and step % 50 == 0:
+           with torch.no_grad():
+               import matplotlib.pyplot as plt
+               fig, axs = plt.subplots(1, 3, figsize=(9, 3))
+               # original image -----------------------------------
+               img = images[0].detach().cpu()
+               img_np = img.permute(1, 2, 0).numpy()
+               if img_np.max() > 1: img_np /= 255
+               axs[0].imshow(img_np.squeeze(),
+                             cmap='gray' if img_np.shape[-1] == 1 else None)
+               axs[0].set_title('Image');  axs[0].axis('off')
+               # prediction ---------------------------------------
+               axs[1].imshow((prediction[0][0, 0] > model.mask_threshold
+                              ).detach().cpu(), cmap='gray')
+               axs[1].set_title('Pred');  axs[1].axis('off')
+               # ground‑truth -------------------------------------
+               axs[2].imshow(labels[0, 0].detach().cpu(), cmap='gray')
+               axs[2].set_title('GT');    axs[2].axis('off')
+
+               fig.tight_layout()
+               fig.savefig(f"{path}/epoch{epoch}_step{step}_id{0}.png")
+               plt.close(fig)             # free host‑RAM
+
+    return total_loss / seen, dice_loss / seen, focal_loss / seen
 
 
 def validate_one_epoch_auto(
@@ -676,4 +911,3 @@ def validate_one_epoch_auto(
             bar.set_postfix(Epoch=epoch, Val_loss=epoch_loss)
 
         return epoch_loss
-

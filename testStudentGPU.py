@@ -16,8 +16,8 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 from modeling.build_sam import sam_model_registry
 
-image_dirs_val = ["MICCAI/instrument_1_4_testing/instrument_dataset_4/left_frames"]
-mask_dirs_val = ["MICCAI/instrument_2017_test/instrument_2017_test/instrument_dataset_4/gt/BinarySegmentation"]
+image_dirs_val = ["/home/shared-nearmrs/mdezenDatasets/MICCAI/instrument_1_4_testing/instrument_dataset_4/left_frames"]
+mask_dirs_val = ["/home/shared-nearmrs/mdezenDatasets/MICCAI/instrument_2017_test/instrument_2017_test/instrument_dataset_4/gt/BinarySegmentation"]
 validation_transform = A.Compose([
     A.Resize(1024,1024),
     A.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
@@ -166,8 +166,6 @@ def refining(mask):
     mask_blurred = mask_blurred/255
 
     return mask_blurred
-
-
 
 
 device = "cuda" if torch.cuda.is_available() else "cpu"

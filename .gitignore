@@ -2,3 +2,7 @@
 *.zip
 *.pth
 *.pt
+*__pycache__*
+data*
+runs/
+RISULTATI
