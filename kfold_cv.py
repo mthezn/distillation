@@ -178,7 +178,8 @@ def train_single_fold(fold_idx, train_dataset, val_dataset, args, device,
     optimizer, scheduler = create_optimizer_scheduler(model, args, args.epochs)
     
     # Loss function
-    criterion = create_loss_criterion()  # Use your fixed loss function
+    #criterion = create_loss_criterion()  # Use your fixed loss function
+    criterion = create_robust_loss_criterion(dice_weight=0.6, focal_weight=0.4)
     
     # Training variables
     best_val_loss = float('inf')
@@ -437,8 +438,8 @@ def main_kfold():
                            stratified=args.stratified, random_state=42)
     
     # Model checkpoint path
-    #model_checkpoint = "/home/shared-nearmrs/mdezenDatasets/autoSamVitH4BeJo.pth"
-    model_checkpoint = "/home/shared-nearmrs/mdezenDatasets/autoSamFineVitHSuOkl.pth"
+    model_checkpoint = "/home/shared-nearmrs/mdezenDatasets/autoSamVitH4BeJo.pth"
+    #model_checkpoint = "/home/shared-nearmrs/mdezenDatasets/autoSamFineVitHSuOkl.pth"
     
     # Store results from all folds
     all_fold_results = []

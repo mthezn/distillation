@@ -183,7 +183,7 @@ def main():
     print("Loading dataset...")
     dataset_mmi = args.input
     
-    prob = 0.3
+    prob = 0.5
     train_transform = A.Compose([
         A.Resize(1024, 1024),
         A.HorizontalFlip(p=prob),
