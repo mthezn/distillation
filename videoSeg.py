@@ -111,8 +111,8 @@ def refining(mask):
 
 
 # === CONFIG ===
-video_input = "cat1_test_set_public/1_fps1.mp4"
-video_output = "cat1_test_set_public/output_segmented_videoRandom1.mp4"
+video_input = "cat1_test_set_public/2_fps1.mp4"
+video_output = "cat1_test_set_public/output_segmented_video2.mp4"
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 cap = cv2.VideoCapture(video_input)
@@ -128,7 +128,7 @@ transform = transforms.Compose([
 # === CREA VIDEO WRITER ===
 out = cv2.VideoWriter(video_output, cv2.VideoWriter_fourcc(*'mp4v'), fps, (frame_w, frame_h))
 
-autosam_checkpoint = "checkpoints/23_06/autoSamRandom68v4F.pth"
+autosam_checkpoint = "checkpoints/23_06/autoSamFineUnetMUcH0.pth"
 model_type = "autoSam"
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -153,12 +153,15 @@ while cap.isOpened():
 
     with torch.no_grad():
         image_embedding = model.image_encoder(img)
+        """
         pred, _ = model.mask_decoder(
             image_embeddings=image_embedding,  # dict
             image_pe=model.prompt_encoder.get_dense_pe(),
 
             multimask_output=False
         )             # output tipo [B, 1, H, W] o logits
+        """
+        pred = model.mask_decoder(image_embedding)
 
     # === Post-processing maschera ===
     mask =  model.postprocess_masks(pred,(1024,1024),(1024,1024)).cpu().numpy() # [B, 1, H, W] -> [H, W]

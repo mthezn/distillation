@@ -123,90 +123,156 @@ class ImageMaskDataset(Dataset):
 
 
 
-class CholecDataset(Dataset):
-    """
-    Class: CholecDataset
+class Kvasir(Dataset):
 
-    Purpose:
-        A PyTorch-compatible dataset class for loading and preprocessing surgical video frames
-        and their corresponding instrument segmentation masks from the CholecSeg dataset
-        (or Hugging Face-compatible derivatives).
+    def __init__(self, image_dirs, mask_dirs=None, transform=None, increase=False):
+            self.image_dirs = image_dirs
+            self.mask_dirs = mask_dirs if mask_dirs is not None else []
+            self.transform = transform
+            self.increase = increase
 
-        The dataset expects each sample to contain an RGB image and a color-encoded mask
-        (under the keys "image" and "color_mask", respectively). Instrument masks are extracted
-        by filtering specific color codes in the mask (169 and 170), which correspond to surgical tools.
+            self.image_paths = {}
+            self.mask_paths = {}
 
-    Constructor Arguments:
-        hf_dataset (Dataset or DatasetDict):
-            A Hugging Face dataset object containing samples with fields:
-                - "image": the RGB image (PIL.Image or numpy.ndarray)
-                - "color_mask": a color-encoded segmentation mask (PIL.Image)
+            for img_dir in image_dirs:
+                for filename in os.listdir(img_dir):
+                    if filename.endswith('.jpg'):
+                        name_base = os.path.splitext(filename)[0]  # es: img1
+                        self.image_paths[name_base] = os.path.join(img_dir, filename)
 
-        transform (albumentations.Compose, optional):
-            A joint image-mask transformation pipeline (e.g., resizing, flipping, normalization).
-            Applied to both the image and the binary mask.
+            # Popola self.mask_paths con chiave = nome base senza estensione
+            if self.mask_dirs:
+                for mask_dir in self.mask_dirs:
+                    for filename in os.listdir(mask_dir):
+                        if filename.endswith('.png'):
+                            name_base = os.path.splitext(filename)[0]  # es: img1
+                            self.mask_paths.setdefault(name_base, []).append(os.path.join(mask_dir, filename))
 
-    Sample Processing:
-        - Converts the image to RGB format if necessary.
-        - Converts grayscale images to 3-channel RGB by stacking.
-        - Converts the color mask into a binary mask, selecting instrument labels (169 and 170).
-        - Applies the provided transformation to both image and mask.
-        - Ensures the mask is a float32 tensor of shape [H, W].
+            # Trova solo le immagini che hanno una maschera corrispondente (match sul nome base)
+            common_keys = sorted(set(self.image_paths.keys()) & set(self.mask_paths.keys()))
 
-    Returns (per sample):
-        image (torch.Tensor):
-            A 3-channel RGB image of shape [3, H, W], normalized if using a transform.
-
-        instrument_mask (torch.Tensor):
-            A binary segmentation mask of shape [H, W], dtype=torch.float32.
-            Values are 1 for instrument pixels, 0 elsewhere.
+            # Ora puoi salvarle come lista di tuple (image_path, mask_path)
+            self.image_filenames = [
+                (self.image_paths[key], self.mask_paths[key][0])  # se più maschere, prende la prima
+                for key in common_keys
+            ]
 
 
-    """
 
-    def __init__(self, hf_dataset, transform=None):
-        self.dataset = hf_dataset
-        self.transform = transform
+            if self.increase:
+                self.image_filenames = self.image_filenames * 3
 
     def __len__(self):
-        return len(self.dataset)
+            return len(self.image_filenames)
 
     def __getitem__(self, idx):
-        sample = self.dataset[idx]
-
-        # === IMMAGINE ===
-        image = sample["image"]
-        if isinstance(image, Image.Image):
-            image = np.array(image.convert("RGB"))
-        elif isinstance(image, np.ndarray):
-            if image.ndim == 2:
-                image = np.stack([image] * 3, axis=-1)
-
-        # === MASCHERA ===
-        mask = sample["color_mask"]
-        if isinstance(mask, Image.Image):
-            mask = np.array(mask)
 
 
-        instrument_mask = np.isin(mask, [169, 170]).astype(np.uint8)
+            img_path, mask_path = self.image_filenames[idx]
+
+            image = np.array(Image.open(img_path).convert("RGB"))
+            mask = np.array(Image.open(mask_path).convert("L"))
 
 
 
 
-        # === TRASFORMAZIONI ===
-        if self.transform:
-            transformed = self.transform(image=image, mask=instrument_mask)
-            image = transformed["image"]  # [3, H, W] tensor
-            instrument_mask = transformed["mask"]  # [H, W] numpy o tensor
+            if self.transform:
+                augmented = self.transform(image=image, mask=mask)
+                image = augmented["image"]
+                combined_mask = augmented["mask"]
+            else:
+                transform_basic = A.Compose([
+                    A.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
+                    ToTensorV2()
+                ])
+                augmented = transform_basic(image=image, mask=mask)
+                image = augmented["image"]
+                combined_mask = augmented["mask"]
 
-            if isinstance(instrument_mask, np.ndarray):
-                instrument_mask = torch.tensor(instrument_mask, dtype=torch.float32)
-            #print("mask unique after transform:", np.unique(instrument_mask)) #maschera tutta  0
-            instrument_mask = torch.tensor(instrument_mask[:,:,0], dtype=torch.float32)
-        else:
-            image = ToTensor()(image)  # [3, H, W]
+            return image, combined_mask
 
-            mask_pil = Image.fromarray(instrument_mask)
-            instrument_mask = mask_pil.convert("L")
 
-        return image, instrument_mask #immmagine [3,h,w] mask [h,w] torch.float32
+
+class CholecDataset(Dataset):
+        """
+        Class: CholecDataset
+
+        Purpose:
+            A PyTorch-compatible dataset class for loading and preprocessing surgical video frames
+            and their corresponding instrument segmentation masks from the CholecSeg dataset
+            (or Hugging Face-compatible derivatives).
+
+            The dataset expects each sample to contain an RGB image and a color-encoded mask
+            (under the keys "image" and "color_mask", respectively). Instrument masks are extracted
+            by filtering specific color codes in the mask (169 and 170), which correspond to surgical tools.
+
+        Constructor Arguments:
+            hf_dataset (Dataset or DatasetDict):
+                A Hugging Face dataset object containing samples with fields:
+                    - "image": the RGB image (PIL.Image or numpy.ndarray)
+                    - "color_mask": a color-encoded segmentation mask (PIL.Image)
+
+            transform (albumentations.Compose, optional):
+                A joint image-mask transformation pipeline (e.g., resizing, flipping, normalization).
+                Applied to both the image and the binary mask.
+
+        Sample Processing:
+            - Converts the image to RGB format if necessary.
+            - Converts grayscale images to 3-channel RGB by stacking.
+            - Converts the color mask into a binary mask, selecting instrument labels (169 and 170).
+            - Applies the provided transformation to both image and mask.
+            - Ensures the mask is a float32 tensor of shape [H, W].
+
+        Returns (per sample):
+            image (torch.Tensor):
+                A 3-channel RGB image of shape [3, H, W], normalized if using a transform.
+
+            instrument_mask (torch.Tensor):
+                A binary segmentation mask of shape [H, W], dtype=torch.float32.
+                Values are 1 for instrument pixels, 0 elsewhere.
+
+
+        """
+
+        def __init__(self, hf_dataset, transform=None):
+            self.dataset = hf_dataset
+            self.transform = transform
+
+        def __len__(self):
+            return len(self.dataset)
+
+        def __getitem__(self, idx):
+            sample = self.dataset[idx]
+
+            # === IMMAGINE ===
+            image = sample["image"]
+            if isinstance(image, Image.Image):
+                image = np.array(image.convert("RGB"))
+            elif isinstance(image, np.ndarray):
+                if image.ndim == 2:
+                    image = np.stack([image] * 3, axis=-1)
+
+            # === MASCHERA ===
+            mask = sample["color_mask"]
+            if isinstance(mask, Image.Image):
+                mask = np.array(mask)
+
+            instrument_mask = np.isin(mask, [169, 170]).astype(np.uint8)
+
+            # === TRASFORMAZIONI ===
+            if self.transform:
+                transformed = self.transform(image=image, mask=instrument_mask)
+                image = transformed["image"]  # [3, H, W] tensor
+                instrument_mask = transformed["mask"]  # [H, W] numpy o tensor
+
+                if isinstance(instrument_mask, np.ndarray):
+                    instrument_mask = torch.tensor(instrument_mask, dtype=torch.float32)
+                # print("mask unique after transform:", np.unique(instrument_mask)) #maschera tutta  0
+                instrument_mask = torch.tensor(instrument_mask[:, :, 0], dtype=torch.float32)
+            else:
+                image = ToTensor()(image)  # [3, H, W]
+
+                mask_pil = Image.fromarray(instrument_mask)
+                instrument_mask = mask_pil.convert("L")
+
+            return image, instrument_mask  # immmagine [3,h,w] mask [h,w] torch.float32

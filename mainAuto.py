@@ -46,7 +46,9 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 #CREO UN MODELLO CON ENCODER CMT CHE USERO  COME TEACHER, DISTILLATO DA UN SAM
 
 
-teacher_checkpoint = "checkpoints/checkpoints_mmagro/decoupledVitHhkuYf.pth"  # Path to the teacher model checkpoint
+teacher_checkpoint = ("checkpoints/checkpoints_mmagro/"
+                      ""
+                      ".pth")  # Path to the teacher model checkpoint
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 sam_checkpoint = "checkpoints/sam_vit_h_4b8939.pth"  # Path to the SAM checkpoint

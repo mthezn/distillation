@@ -7,10 +7,12 @@ import numpy as np
 import time
 import cv2
 from datasets import load_dataset
-
-from Dataset import ImageMaskDataset, CholecDataset
+from cholect50 import dataloader_pth
+from Dataset import ImageMaskDataset, CholecDataset, Kvasir
 import torch
 from torch.utils.data import DataLoader
+
+from cholect50.dataloader_pth import CholecT50
 from modeling.build_sam import sam_model_registry
 from utility import dice_coefficient,sensitivity,specificity
 import os
@@ -116,7 +118,7 @@ def refining(mask):
 image_dirs_val = ["MICCAI/instrument_1_4_testing/instrument_dataset_4/left_frames"]
 mask_dirs_val = ["MICCAI/instrument_2017_test/instrument_2017_test/instrument_dataset_4/gt/BinarySegmentation"]
 #image_dirs_leeds = ["leeds/left"]
-#image_dirs_val = ["cat1_test_set_public/frames1"]
+#image_dirs_val = ["cat1_test_set_public/frames5"]
 image_dirs_train = [
 
     "MICCAI/instrument_1_4_training/instrument_dataset_1/left_frames",
@@ -131,26 +133,30 @@ validation_transform = A.Compose([
     A.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
     ToTensorV2()
 ])
+img_dir = ["kvasir/images/"]
+mask_dir = ["kvasir/masks/"]
+datasetKvasir = Kvasir(img_dir,mask_dir, transform=validation_transform)
+#print(len(datasetKvasir))
 
 
 def contains_instrument(example):
     mask = np.array(example["color_mask"])  # o "segmentation" se diverso
     return np.any((mask == 169) | (mask == 170))
 
-
 datasetCholec = load_dataset("minwoosun/CholecSeg8k", trust_remote_code=True)
 
 filtered_ds = datasetCholec['train'].filter(contains_instrument)
 print(len(filtered_ds))
-datasetTest = ImageMaskDataset(image_dirs=image_dirs_val, mask_dirs=None, transform=validation_transform,
-                               )
-#datasetTest = CholecDataset(hf_dataset=datasetCholec['train'], transform=validation_transform)
-dataloaderTest = DataLoader(datasetTest, batch_size=2, shuffle=True)
+#datasetTest = ImageMaskDataset(image_dirs=image_dirs_val, mask_dirs=None, transform=validation_transform,)
+#datasetTest = CholecDataset(hf_dataset=filtered_ds, transform=validation_transform)
+dataloaderTest = DataLoader(datasetKvasir, batch_size=2, shuffle=True)
+
+
 
 
 # CARICO UN MODELLO SAM
 # sam_checkpoint = "C:/Users/User/OneDrive - Politecnico di Milano/Documenti/POLIMI/Tesi/distillation/checkpoints/sam_vit_b_01ec64.pth"
-autosam_checkpoint = "checkpoints/28_07/autoSamFineUnetMUcH0.pth"
+autosam_checkpoint = "checkpoints/28_07/autoSamVitHUnetD3llB.pth"
 model_type = "autoSamUnet"
 
 device = "cuda" if torch.cuda.is_available() else "cpu"

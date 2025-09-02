@@ -1,5 +1,5 @@
 import pandas as pd
-
+from Dataset import Kvasir
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 from matplotlib import pyplot as plt
@@ -136,12 +136,13 @@ def contains_instrument(example):
 
 
 #datasetCholec = load_dataset("minwoosun/CholecSeg8k", trust_remote_code=True)
-
+img_dir = ["kvasir/images/"]
+mask_dir = ["kvasir/masks/"]
+datasetKvasir = Kvasir(img_dir,mask_dir, transform=validation_transform)
 #filtered_ds = datasetCholec['train'].filter(contains_instrument)
-datasetTest = ImageMaskDataset(image_dirs=image_dirs_val, mask_dirs=mask_dirs_val, transform=validation_transform,
-                               )
+#datasetTest = ImageMaskDataset(image_dirs=image_dirs_val, mask_dirs=mask_dirs_val, transform=validation_transform,)
 #datasetTest = CholecDataset(hf_dataset=filtered_ds, transform=validation_transform)
-dataloaderTest = DataLoader(datasetTest, batch_size=2, shuffle=True)
+dataloaderTest = DataLoader(datasetKvasir, batch_size=2, shuffle=True)
 
 
 # CARICO UN MODELLO SAM

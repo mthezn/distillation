@@ -4,6 +4,7 @@ from pycocotools.coco import COCO
 import numpy as np
 import cv2
 import json
+from PIL import Image
 import os
 def extract_frames(video_path, output_dir):
     os.makedirs(output_dir, exist_ok=True)
@@ -14,8 +15,17 @@ def extract_frames(video_path, output_dir):
         ret, frame = cap.read()
         if not ret:
             break
+
+        height, width = frame.shape[:2]
+
+        # Taglio verticale: rimuovi ~10% sopra e ~10% sotto (adatta se serve)
+        top_crop = int(0.05 * height)
+        bottom_crop = int(0.95 * height)
+
+        # Crop (left, top, right, bottom)
+        cropped_img = frame[top_crop:bottom_crop, 0:width]
         frame_path = os.path.join(output_dir, f"frame_{index:04d}.png")
-        cv2.imwrite(frame_path, frame)
+        cv2.imwrite(frame_path, cropped_img)
         index += 1
 
     cap.release()
@@ -52,9 +62,9 @@ def draw_boxes_to_masks(json_path, output_dir, image_size=(512, 640)):
     print(f"✅ Salvate {len(data['boxes'])} maschere in {output_dir}")
 
 
-#extract_frames("cat1_test_set_public/7_fps1.mp4", "cat1_test_set_public/frames7")
-draw_boxes_to_masks(
-    json_path="cat1_test_set_public/7_fps1_gc.json",
-    output_dir="cat1_test_set_public/masks7",
+extract_frames("cat1_test_set_public/5_fps1.mp4", "cat1_test_set_public/frames5")
+"""draw_boxes_to_masks(
+    json_path="cat1_test_set_public/2_fps1_gc.json",
+    output_dir="cat1_test_set_public/masks2",
     image_size=(1024, 1024)  # altezza x larghezza!
-)
+)"""
