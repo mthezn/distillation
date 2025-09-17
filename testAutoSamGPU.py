@@ -1,13 +1,13 @@
 import pandas as pd
-from Dataset import Kvasir
+
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 from matplotlib import pyplot as plt
 import numpy as np
 import time
 import cv2
-
-from Dataset import ImageMaskDataset,CholecDataset
+import os
+from Dataset import ImageMaskDataset,CholecDataset,LeedsDataset
 import torch
 from torch.utils.data import DataLoader
 from modeling.build_sam import sam_model_registry
@@ -110,8 +110,8 @@ def refining(mask):
 
 ########################################################################################################
 
-image_dirs_val = ["MICCAI/instrument_1_4_testing/instrument_dataset_4/left_frames"]
-mask_dirs_val = ["MICCAI/instrument_2017_test/instrument_2017_test/instrument_dataset_4/gt/BinarySegmentation"]
+image_dirs_val = ["MICCAI/instrument_1_4_testing/instrument_dataset_2/left_frames"]
+mask_dirs_val = ["MICCAI/instrument_2017_test/instrument_2017_test/instrument_dataset_2/gt/BinarySegmentation"]
 #image_dirs_val = ["MICCAI/instrument_1_4_training/instrument_dataset_4/left_frames"]
 #mask_dirs_val = ["MICCAI/instrument_1_4_training/instrument_dataset_4/ground_truth/Large_Needle_Driver_Left_labels"]
 image_dirs_train = [
@@ -130,19 +130,18 @@ validation_transform = A.Compose([
 ])
 
 
+
+
+
 def contains_instrument(example):
     mask = np.array(example["color_mask"])  # o "segmentation" se diverso
     return np.any((mask == 169) | (mask == 170))
 
 
-#datasetCholec = load_dataset("minwoosun/CholecSeg8k", trust_remote_code=True)
-img_dir = ["kvasir/images/"]
-mask_dir = ["kvasir/masks/"]
-datasetKvasir = Kvasir(img_dir,mask_dir, transform=validation_transform)
-#filtered_ds = datasetCholec['train'].filter(contains_instrument)
-#datasetTest = ImageMaskDataset(image_dirs=image_dirs_val, mask_dirs=mask_dirs_val, transform=validation_transform,)
-#datasetTest = CholecDataset(hf_dataset=filtered_ds, transform=validation_transform)
-dataloaderTest = DataLoader(datasetKvasir, batch_size=2, shuffle=True)
+img_dir=["/home/shared-nearmrs/MS_dataset/real"]
+datasetTest = LeedsDataset(image_dirs=img_dir, transform=validation_transform,)
+
+dataloaderTest = DataLoader(datasetTest, batch_size=2, shuffle=True)
 
 
 # CARICO UN MODELLO SAM
@@ -164,7 +163,9 @@ model.eval()
 
 # predictor = SamPredictor(model)
 timeDf = pd.DataFrame(columns=['time', 'index', 'iou','dice','sensitivity','specificity'])
-
+save_dir = "results_seg"
+os.makedirs(save_dir, exist_ok=True)
+n = 0
 for images, labels in dataloaderTest:  # i->batch index, images->batch of images, labels->batch of labels
 
     images = images.to(device)
@@ -190,24 +191,18 @@ for images, labels in dataloaderTest:  # i->batch index, images->batch of images
      # manca batch dimensione
         image = image.unsqueeze(0)
 
-            # Convert to binary mask
-        # label = (label > 0).astype(np.uint8)
+
 
         start_time = time.time()
         image_embedding = model.image_encoder(image)
-        #low_res, _ = model.mask_decoder(
-            #image_embeddings=image_embedding,  # dict
-            #image_pe=model.prompt_encoder.get_dense_pe(),
 
-            #multimask_output=False
-        #)
         low_res = model.mask_decoder(image_embedding)
         low_res = model.postprocess_masks(low_res,(1024,1024),(1024,1024))
         mask = low_res >0
-       # mask = mask.to(torch.uint8)
-        #mask = refining(mask)
+        mask = mask.detach().cpu().numpy()
+        mask = refining(mask)
         end_time = time.time()
-        mask = mask.cpu().numpy()
+        #mask = mask.cpu().numpy()
 
 
         values, counts = np.unique(low_res.detach().cpu().numpy(), return_counts=True)
@@ -229,22 +224,39 @@ for images, labels in dataloaderTest:  # i->batch index, images->batch of images
         values, counts = np.unique(mask, return_counts=True)  # mask.cpu().numpy()
         #print("unique", values)
         #print("counts", counts)
+        img_vis = image.squeeze(0).cpu().permute(1, 2, 0).numpy()
+        img_vis = (img_vis - img_vis.min()) / (img_vis.max() - img_vis.min())  # normali
+
+        # plot side by side
+        fig, axs = plt.subplots(1, 2, figsize=(12, 4))
+        axs[0].imshow(img_vis)
+        axs[0].set_title("Image")
+        axs[0].axis("off")
 
 
 
-        plt.axis('off')
-        plt.show()
+        axs[1].imshow(mask)
+        axs[1].set_title("Prediction")
+        axs[1].axis("off")
+
+        # salva
+        save_path = os.path.join(save_dir, f"result_{n}.png")
+        n = n +1
+        plt.savefig(save_path, bbox_inches="tight")
+        plt.close(fig)
+
+
 
         latency = (end_time - start_time) * 1000
-        iou = calculate_iou(mask, label)
-        dice = dice_coefficient(mask, label)
-        sens = sensitivity(mask, label)
-        spec = specificity(mask, label)
+        #iou = calculate_iou(mask, label)
+        #dice = dice_coefficient(mask, label)
+        #sens = sensitivity(mask, label)
+        #spec = specificity(mask, label)
 
-        timeDf.loc[len(timeDf)] = [latency, len(timeDf), iou,dice,sens,spec]
+        #timeDf.loc[len(timeDf)] = [latency, len(timeDf), iou,dice,sens,spec]
 
 
-timeDf.to_csv('RISULTATI/TimeDfBBoxAutoSam.csv', index=False)
+#timeDf.to_csv('RISULTATI/TimeDfBBoxAutoSam.csv', index=False)
 pd.set_option('display.max_rows', None)
 print(timeDf)
 

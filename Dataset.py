@@ -120,7 +120,42 @@ class ImageMaskDataset(Dataset):
 
             return image, combined_mask
 
+class LeedsDataset(Dataset):
+    def __init__(self, image_dirs, transform=None, increase=False):
+            self.image_dirs = image_dirs
+            self.transform = transform
+            self.increase = increase
 
+            self.image_paths = []
+
+            for img_dir in image_dirs:
+                for filename in os.listdir(img_dir):
+                    if filename.endswith('.png'):
+                        self.image_paths.append(os.path.join(img_dir, filename))
+
+            if self.increase:
+                self.image_paths = self.image_paths * 3
+
+    def __len__(self):
+            return len(self.image_paths)
+
+    def __getitem__(self, idx):
+            img_path = self.image_paths[idx]
+            image = np.array(Image.open(img_path).convert("RGB"))
+
+            if self.transform:
+                augmented = self.transform(image=image)
+                image = augmented["image"]
+            else:
+                transform_basic = A.Compose([
+                    A.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
+                    ToTensorV2()
+                ])
+                augmented = transform_basic(image=image)
+                image = augmented["image"]
+            mask = torch.zeros((image.shape[1], image.shape[2]), dtype=torch.float32)
+
+            return image,mask
 
 
 class Kvasir(Dataset):

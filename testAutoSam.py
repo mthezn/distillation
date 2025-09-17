@@ -7,8 +7,10 @@ import numpy as np
 import time
 import cv2
 from datasets import load_dataset
+
+
 from cholect50 import dataloader_pth
-from Dataset import ImageMaskDataset, CholecDataset, Kvasir
+from Dataset import ImageMaskDataset, CholecDataset, LeedsDataset
 import torch
 from torch.utils.data import DataLoader
 
@@ -133,30 +135,28 @@ validation_transform = A.Compose([
     A.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
     ToTensorV2()
 ])
-img_dir = ["kvasir/images/"]
-mask_dir = ["kvasir/masks/"]
-datasetKvasir = Kvasir(img_dir,mask_dir, transform=validation_transform)
-#print(len(datasetKvasir))
+img_dir=["real"]
 
 
 def contains_instrument(example):
     mask = np.array(example["color_mask"])  # o "segmentation" se diverso
     return np.any((mask == 169) | (mask == 170))
 
-datasetCholec = load_dataset("minwoosun/CholecSeg8k", trust_remote_code=True)
+#datasetCholec = load_dataset("minwoosun/CholecSeg8k", trust_remote_code=True)
 
-filtered_ds = datasetCholec['train'].filter(contains_instrument)
-print(len(filtered_ds))
+#filtered_ds = datasetCholec['train'].filter(contains_instrument)
+#print(len(filtered_ds))
+datasetTest = LeedsDataset(image_dirs=img_dir, transform=validation_transform)
 #datasetTest = ImageMaskDataset(image_dirs=image_dirs_val, mask_dirs=None, transform=validation_transform,)
 #datasetTest = CholecDataset(hf_dataset=filtered_ds, transform=validation_transform)
-dataloaderTest = DataLoader(datasetKvasir, batch_size=2, shuffle=True)
+dataloaderTest = DataLoader(datasetTest, batch_size=2, shuffle=True)
 
 
 
 
 # CARICO UN MODELLO SAM
 # sam_checkpoint = "C:/Users/User/OneDrive - Politecnico di Milano/Documenti/POLIMI/Tesi/distillation/checkpoints/sam_vit_b_01ec64.pth"
-autosam_checkpoint = "checkpoints/28_07/autoSamVitHUnetD3llB.pth"
+autosam_checkpoint = "checkpoints/28_07/autoSamFineUnetMUcH0.pth"
 model_type = "autoSamUnet"
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -173,7 +173,7 @@ model.eval()
 # predictor = SamPredictor(model)
 timeDf = pd.DataFrame(columns=['time', 'index', 'iou','dice','sensitivity','specificity'])
 
-for images, labels in dataloaderTest:  # i->batch index, images->batch of images, labels->batch of labels
+for images,labels in dataloaderTest:  # i->batch index, images->batch of images, labels->batch of labels
 
     images = images.to(device)
     print(images.shape)
@@ -185,6 +185,7 @@ for images, labels in dataloaderTest:  # i->batch index, images->batch of images
         # Convert the mask to a binary mask
         label = np.array(label.cpu())
         label = (label > 0).astype(np.uint8)
+        cv2.imwrite("simulated/label.png", label*255)
         # print("label",label)
         print(label.shape)
         unique,values = np.unique(label, return_counts=True)
@@ -196,14 +197,22 @@ for images, labels in dataloaderTest:  # i->batch index, images->batch of images
         # Assicurati che sia float e abbia batch dimensione
         image = image.float()  # converti in float32 se necessario
      # manca batch dimensione
-        image = image.unsqueeze(0)
 
-            # Convert to binary mask
-        # label = (label > 0).astype(np.uint8)
-       # plt.figure(figsize=(10, 10))
-        #plt.imshow(label.squeeze(), cmap='gray') #con label *255 funziona perche non l iinterpreta forse come bianri ma come valori di intensita quindi 1 è molto picolo
-        #plt.axis('off')
+        print(image.shape)
+        # permuta a (C, H, W)
+        #image = image.permute(2, 0, 1)  # -> (3, 1024, 1024)
+
+
+
+        image = image.unsqueeze(0) #aggiunge dimensione batch
+
+        #image = image.unsqueeze(0)
+
+
+        plt.figure(figsize=(10, 10))
+
         start_time = time.time()
+
         image_embedding = model.image_encoder(image)
         """""
         low_res, _ = model.mask_decoder(
@@ -238,21 +247,24 @@ for images, labels in dataloaderTest:  # i->batch index, images->batch of images
         plt.title('Thresholded mask (>0.5)')
         plt.show()
 
-        plt.figure(figsize=(10, 10))
-        image_to_show = image[0].permute(1, 2, 0).cpu().numpy()
-        image = (image_to_show * 0.5 + 0.5) * 255
-        image = image.astype(np.uint8)
-        plt.imshow(image)
+        #cv2.imwrite("simulated/mask_soglia.png", binary_mask.squeeze().astype(np.uint8)*255)
 
 
 
-
+        plt.figure()
         mask = refining(mask)
         show_mask(mask, plt.gca(), random_color=True)
         values, counts = np.unique(mask, return_counts=True)  # mask.cpu().numpy()
         #print("unique", values)
         #print("counts", counts)
 
+        image = image.squeeze(0)
+
+        image_to_show = image.permute(1, 2, 0).cpu().numpy()
+        image = (image_to_show * 0.5 + 0.5) * 255
+        image = image.astype(np.uint8)
+        plt.imshow(image)
+        plt.show()
 
 
         plt.axis('off')

@@ -8,6 +8,7 @@ from matplotlib import pyplot as plt
 import numpy as np
 import time
 import cv2
+import os
 
 from Dataset import ImageMaskDataset
 from utility import dice_coefficient, sensitivity, specificity
@@ -16,8 +17,8 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 from modeling.build_sam import sam_model_registry
 
-image_dirs_val = ["MICCAI/instrument_1_4_testing/instrument_dataset_4/left_frames"]
-mask_dirs_val = ["MICCAI/instrument_2017_test/instrument_2017_test/instrument_dataset_4/gt/BinarySegmentation"]
+image_dirs_val = ["MICCAI/instrument_1_4_testing/instrument_dataset_2/left_frames"]
+mask_dirs_val = ["MICCAI/instrument_2017_test/instrument_2017_test/instrument_dataset_2/gt/BinarySegmentation"]
 validation_transform = A.Compose([
     A.Resize(1024,1024),
     A.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
@@ -180,8 +181,8 @@ model.to(device=device)
 #print("Missing keys:", model.load_state_dict(state_dict, strict=False))
 #CARICO UN MODELLO SAM
 #sam_checkpoint = "C:/Users/User/OneDrive - Politecnico di Milano/Documenti/POLIMI/Tesi/distillation/checkpoints/sam_vit_b_01ec64.pth"
-sam_checkpoint = "checkpoints/sam_vit_h_4b8939.pth"
-model_type = "vit_h"
+sam_checkpoint = "checkpoints/repvit_sam.pt"
+model_type = "repvit"
 
 
 
@@ -225,6 +226,9 @@ model.prompt_encoder = cloned_prompt_encoder
 #predictor = SamPredictor(model)
 timeDf = pd.DataFrame(columns=['time', 'index', 'iou','dice','sensitivity','specificity'])
 
+save_dir = "results_edge"
+os.makedirs(save_dir, exist_ok=True)
+n = 0
 for images, labels in dataloaderTest:  # i->batch index, images->batch of images, labels->batch of labels
 
 
@@ -301,6 +305,29 @@ for images, labels in dataloaderTest:  # i->batch index, images->batch of images
 
                 maskunion = np.logical_or(maskunion, mask)
 
+            #img_vis = image.squeeze(0)
+            #img_vis = (img_vis - img_vis.min()) / (img_vis.max() - img_vis.min())  # normali
+
+            # plot side by side
+            fig, axs = plt.subplots(1, 3, figsize=(12, 4))
+            axs[0].imshow(image)
+            axs[0].set_title("Image")
+            axs[0].axis("off")
+            axs[1].imshow(maskunion.squeeze(0),cmap = "gray")
+            axs[1].set_title("Prediction")
+            axs[1].axis("off")
+
+            axs[2].imshow(label,cmap = "gray")
+            axs[2].set_title("Label")
+            axs[2].axis("off")
+
+
+
+            # salva
+            save_path = os.path.join(save_dir, f"result_{n}.png")
+            n = n + 1
+            plt.savefig(save_path, bbox_inches="tight")
+            plt.close(fig)
 
             latency = (end_time - start_time) * 1000
             iou = calculate_iou(maskunion, label)
