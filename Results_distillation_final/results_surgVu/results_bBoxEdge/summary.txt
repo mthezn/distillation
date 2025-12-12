@@ -1,0 +1,21 @@
+======================================================================
+AUTOSAM EVALUATION - WITH DICE AND SENSITIVITY
+======================================================================
+
+total_images: 203
+total_gt_boxes: 405
+total_predictions: 438
+global_precision: 0.8082191780821918
+global_recall: 0.8740740740740741
+global_sensitivity: 0.8740740740740741
+global_f1: 0.8398576512455516
+ap_at_iou_threshold: 0.7150900805536203
+iou_threshold: 0.5
+mean_precision: 0.8176518883415436
+mean_recall: 0.8752052545155993
+mean_sensitivity: 0.8752052545155993
+mean_specificity: 0.8176518883415436
+mean_f1: 0.8362889983579638
+mean_iou: 0.7100400168232799
+mean_dice: 0.7955570010312697
+mean_latency_ms: 41.44202899463071

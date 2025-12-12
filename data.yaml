@@ -1,0 +1,5 @@
+path: /path/to/dataset
+train: images/train
+val: images/val
+nc: 8  # Numero classi (es. 8 per EndoVis)
+names: ['shaft', 'wrist', 'jaws', 'probe', 'needle', 'thread', 'clip', 'background']

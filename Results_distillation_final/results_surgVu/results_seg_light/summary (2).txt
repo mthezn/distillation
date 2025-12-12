@@ -1,0 +1,43 @@
+======================================================================
+AUTOSAM EVALUATION - WITH DICE AND SENSITIVITY
+======================================================================
+
+📊 Dataset:
+   Totale immagini: 203
+   Totale GT boxes: 405
+   Totale predizioni: 533
+
+🎯 METRICHE BOX-LEVEL (Globali):
+   TP: 333, FP: 200, FN: 72
+   Precision: 0.6248
+   Recall: 0.8222
+   F1-Score: 0.7100
+   AP@0.5: 0.5661
+
+📊 METRICHE BOX-LEVEL (Medie per immagine):
+   Precision:  0.6552 ± 0.2360
+   Recall:     0.8227 ± 0.2548
+   F1-Score:   0.7153 ± 0.2227
+   IoU medio:  0.8547 ± 0.1239
+   Dice medio: 0.9131 ± 0.1195
+
+🎯 METRICHE PIXEL-LEVEL (Globali):
+   TP pixels: 55,828,389, FP pixels: 2,324,680
+   FN pixels: 13,903,370, TN pixels: 140,804,489
+   Sensitivity: 0.8006
+   Specificity: 0.9838
+   Precision:   0.9600
+   Dice Score:  0.8731
+   IoU:         0.7748
+   Accuracy:    0.9238
+
+📊 METRICHE PIXEL-LEVEL (Medie per immagine):
+   Sensitivity: 0.8068 ± 0.1276
+   Specificity: 0.9841 ± 0.0237
+   Precision:   0.9615 ± 0.0545
+   Dice Score:  0.8704 ± 0.0851
+   IoU:         0.7799 ± 0.1257
+   Accuracy:    0.9238 ± 0.0521
+
+⏱️  Performance:
+   Latenza media: 29.67 ± 94.51 ms

@@ -1,0 +1,13 @@
+total_images: 203
+total_gt_boxes: 405
+total_predictions: 418
+global_precision: 0.9545454545454546
+global_recall: 0.9851851851851852
+global_f1: 0.9696233292831106
+ap_at_iou_threshold: 0.8861322299821239
+iou_threshold: 0.5
+mean_precision: 0.9638752052545156
+mean_recall: 0.9852216748768473
+mean_f1: 0.9714285714285714
+mean_iou: 0.8608761110240094
+mean_latency_ms: 24.672575184864364

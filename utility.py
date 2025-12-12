@@ -286,3 +286,38 @@ def specificity(pred: np.ndarray, target: np.ndarray) -> float:
     if tn + fp == 0:
         return 1.0  # no negative cases in ground truth
     return tn / (tn + fp)
+
+
+def mask_to_multiple_bboxes(mask):
+    """
+    Estrae bbox separate per ogni oggetto in una maschera binaria
+
+    Args:
+        mask: array 2D (H, W) binario con più oggetti
+
+    Returns:
+        bboxes: lista di [x, y, w, h], uno per ogni oggetto
+    """
+    # Assicurati che sia binaria uint8
+    mask_uint8 = (mask > 0).astype(np.uint8) * 255
+
+    # Trova componenti connesse
+    num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(
+        mask_uint8,
+        connectivity=8  # 8-connessione (diagonali incluse)
+    )
+
+    bboxes = []
+    # Salta label 0 (background)
+    for i in range(1, num_labels):
+        x = stats[i, cv2.CC_STAT_LEFT]
+        y = stats[i, cv2.CC_STAT_TOP]
+        w = stats[i, cv2.CC_STAT_WIDTH]
+        h = stats[i, cv2.CC_STAT_HEIGHT]
+        area = stats[i, cv2.CC_STAT_AREA]
+
+        # Filtra oggetti troppo piccoli (opzionale)
+        if area > 10:  # Soglia minima pixel
+            bboxes.append([float(x), float(y), float(w), float(h)])
+
+    return bboxes

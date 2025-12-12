@@ -50,7 +50,7 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 #CARICO IL MIO AUTOSAM
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
-autosam_checkpoint = "checkpoints/28_07/autoSamVitHUnetD3llB.pth"  # Path to the autosam checkpoint
+autosam_checkpoint = "checkpointsLight/autoSamVitHUnethX66W.pth"  # Path to the autosam checkpoint
 
 
 model = sam_model_registry["autoSamUnet"](checkpoint=None)
@@ -119,7 +119,7 @@ run = wandb.init(
         "architecture": "CMT/Unet",
         "dataset": "Miccai + Cholec",
         "epochs": epochs,
-        "criterion": "DiceLoss",
+        "criterion": "BCELoss",
         "batch_size": batch_size,
         "optimizer": optimizer_cfg['opt'],
         "weight_decay": optimizer_cfg['weight_decay'],
@@ -195,7 +195,7 @@ for images, masks in dataloader:
 patience = 7  # Number of epochs to wait for improvement
 best_val_loss = float('inf')
 epochs_no_improve = 0
-checkpoint_path = "checkpoints/28_07/" + name+".pth"
+checkpoint_path = "checkpointsLight/" + name+".pth"
 
 torch.cuda.empty_cache()
 gc.collect()

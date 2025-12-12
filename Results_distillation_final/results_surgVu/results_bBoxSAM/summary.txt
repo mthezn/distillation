@@ -1,0 +1,51 @@
+📊 Dataset:
+   Totale immagini: 203
+   Totale GT boxes: 405
+   Totale predizioni: 403
+
+🎯 METRICHE BOX-LEVEL (Globali):
+   TP: 402, FP: 1, FN: 3
+   Precision: 0.9975
+   Recall: 0.9926
+   F1-Score: 0.9950
+   AP@0.5: 0.9084
+
+📊 METRICHE BOX-LEVEL (Medie per immagine):
+   Precision:  0.9951 ± 0.0702
+   Recall:     0.9926 ± 0.0783
+   F1-Score:   0.9934 ± 0.0739
+   IoU medio:  0.9093 ± 0.0746
+   Dice medio: 0.9496 ± 0.0712
+
+🎯 METRICHE PIXEL-LEVEL (Globali):
+   TP pixels: 65,224,610, FP pixels: 1,241,469
+   FN pixels: 4,507,149, TN pixels: 141,887,700
+   Sensitivity: 0.9354
+   Specificity: 0.9913
+   Precision:   0.9813
+   Dice Score:  0.9578
+   IoU:         0.9190
+   Accuracy:    0.9730
+
+📊 METRICHE PIXEL-LEVEL (Medie per immagine):
+   Sensitivity: 0.9344 ± 0.0249
+   Specificity: 0.9911 ± 0.0142
+   Precision:   0.9819 ± 0.0229
+   Dice Score:  0.9572 ± 0.0171
+   IoU:         0.9185 ± 0.0300
+   Accuracy:    0.9730 ± 0.0122
+
+⏱️  Performance:
+   Latenza media: 443.44 ± 3.94 ms
+
+======================================================================
+
+✅ Risultati salvati in 'results_bBoxMobile/'
+   - metrics_per_image.csv: metriche dettagliate per ogni immagine
+   - pr_curve.png: curva Precision-Recall
+   - summary.txt: riepilogo metriche globali
+
+˚️ Metriche aggiunte:
+   ✓ Dice Score medio per immagine (da IoU dei match)
+   ✓ Sensitivity (= Recall)
+   ✓ Specificity (1 - FP/total_preds)

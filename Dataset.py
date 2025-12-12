@@ -4,10 +4,12 @@ import numpy as np
 from PIL import Image
 from torch.utils.data import Dataset
 import albumentations as A
+import json
 from albumentations.pytorch import ToTensorV2
 import torch
 from torchvision.transforms import ToTensor
-
+from pycocotools.coco import COCO
+from pycocotools import mask as maskUtils
 class ImageMaskDataset(Dataset):
     """
     Class: ImageMaskDataset
@@ -311,3 +313,133 @@ class CholecDataset(Dataset):
                 instrument_mask = mask_pil.convert("L")
 
             return image, instrument_mask  # immmagine [3,h,w] mask [h,w] torch.float32
+
+
+class DatasetTest(Dataset):
+    def __init__(self, image_dirs, coco, transform=None, top_n=None, min_area=None):
+        """
+        Dataset per immagini con annotazioni COCO.
+
+        Args:
+            image_dirs: Lista di directory contenenti le immagini
+            coco_file: Path al file annotations.json in formato COCO
+            transform: Trasformazioni Albumentations (opzionale)
+            top_n: Numero massimo di bbox da restituire (le più grandi)
+            min_area: Area minima per filtrare le bbox
+        """
+        self.image_dirs = image_dirs if isinstance(image_dirs, list) else [image_dirs]
+        self.transform = transform
+        self.top_n = top_n
+        self.min_area = min_area
+
+        # Carica COCO
+        with open(coco, "r") as f:
+            self.coco_data = json.load(f)
+        self.coco = COCO(coco)
+
+        # Crea mappatura filename -> image_id per ricerca veloce
+        self.filename_to_id = {
+            img["file_name"]: img["id"]
+            for img in self.coco_data["images"]
+        }
+
+        # Trova tutti i percorsi delle immagini
+        self.image_paths = []
+        for img_dir in self.image_dirs:
+            if not os.path.exists(img_dir):
+                print(f"⚠️  Directory non trovata: {img_dir}")
+                continue
+
+            for filename in os.listdir(img_dir):
+                if filename.lower().endswith(('.png', '.jpg', '.jpeg')):
+                    full_path = os.path.join(img_dir, filename)
+                    # Verifica che l'immagine sia nel file COCO
+                    if filename in self.filename_to_id:
+                        self.image_paths.append(full_path)
+                    else:
+                        print(f"⚠️  Immagine non nel COCO: {filename}")
+
+        print(f"✓ Trovate {len(self.image_paths)} immagini con annotazioni")
+
+    def __len__(self):
+        return len(self.image_paths)
+
+    def __getitem__(self, idx):
+        # Carica immagine
+        img_path = self.image_paths[idx]
+        image = np.array(Image.open(img_path).convert("RGB"))
+
+        # Estrai filename
+        filename = os.path.basename(img_path)
+
+        # Trova image_id
+        img_id = self.filename_to_id.get(filename)
+
+        if img_id is None:
+            print(f"⚠️  Nessuna annotazione per: {filename}")
+            # Ritorna immagine senza bbox
+            if self.transform:
+                augmented = self.transform(image=image)
+                image = augmented["image"]
+            else:
+                image = self._default_transform(image)
+            return image, []
+
+        # Carica annotazioni
+        ann_ids = self.coco.getAnnIds(imgIds=[img_id])
+        anns = self.coco.loadAnns(ann_ids)
+
+        # Estrai bboxes: [x_min, y_min, width, height] (formato COCO)
+        bboxes_with_area = []
+        for ann in anns:
+            x, y, w, h = ann["bbox"]
+            area = ann.get("area", w * h)
+            bboxes_with_area.append({
+                "bbox": [x, y, w, h],
+                "bbox_xyxy": [x, y, x + w, y + h],  # Formato [x1, y1, x2, y2]
+                "area": area,
+                "category_id": ann["category_id"]
+            })
+
+        # Filtra per area minima
+        if self.min_area is not None:
+            bboxes_with_area = [b for b in bboxes_with_area if b["area"] >= self.min_area]
+
+        # Ordina per area (più grande prima) e prendi top N
+        bboxes_with_area.sort(key=lambda x: x["area"], reverse=True)
+        if self.top_n is not None:
+            bboxes_with_area = bboxes_with_area[:self.top_n]
+
+        # Estrai bbox in formato COCO [x, y, w, h]
+        bboxes = [b["bbox"] for b in bboxes_with_area]
+
+        # Applica trasformazioni
+        if self.transform:
+            # Albumentations richiede bbox in formato [x_min, y_min, x_max, y_max] normalizzato
+            h, w = image.shape[:2]
+            bbox_params = A.BboxParams(
+                format='coco',  # COCO format: [x, y, width, height]
+                label_fields=['category_ids'],
+                min_area=0,
+                min_visibility=0
+            )
+
+            transform_with_bbox = A.Compose(
+                self.transform.transforms if hasattr(self.transform, 'transforms') else [self.transform],
+                bbox_params=bbox_params
+            )
+
+            category_ids = [b["category_id"] for b in bboxes_with_area]
+
+
+            augmented = transform_with_bbox(
+                image=image,
+                bboxes=bboxes,
+                category_ids=category_ids
+            )
+            image = augmented["image"]
+            bboxes = augmented["bboxes"]
+        else:
+            image = self._default_transform(image)
+
+        return image, bboxes

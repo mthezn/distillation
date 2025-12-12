@@ -17,8 +17,16 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 from modeling.build_sam import sam_model_registry
 
-image_dirs_val = ["MICCAI/instrument_1_4_testing/instrument_dataset_2/left_frames"]
-mask_dirs_val = ["MICCAI/instrument_2017_test/instrument_2017_test/instrument_dataset_2/gt/BinarySegmentation"]
+image_dirs_test = ["MICCAI/instrument_1_4_testing/instrument_dataset_1/left_frames",
+                   "MICCAI/instrument_1_4_testing/instrument_dataset_2/left_frames",
+                   "MICCAI/instrument_1_4_testing/instrument_dataset_3/left_frames",
+                   "MICCAI/instrument_1_4_testing/instrument_dataset_4/left_frames",
+                   ]
+mask_dirs_test = ["MICCAI/instrument_2017_test/instrument_2017_test/instrument_dataset_1/gt/TypeSegmentationRescaled",
+                  "MICCAI/instrument_2017_test/instrument_2017_test/instrument_dataset_2/gt/TypeSegmentationRescaled",
+                  "MICCAI/instrument_2017_test/instrument_2017_test/instrument_dataset_3/gt/TypeSegmentationRescaled",
+                  "MICCAI/instrument_2017_test/instrument_2017_test/instrument_dataset_4/gt/TypeSegmentationRescaled",
+]
 validation_transform = A.Compose([
     A.Resize(1024,1024),
     A.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
@@ -30,7 +38,7 @@ mask_transform  = transforms.Compose([
     transforms.Resize((1024,1024)),
     transforms.ToTensor()
 ])
-datasetTest = ImageMaskDataset(image_dirs=image_dirs_val,mask_dirs=mask_dirs_val,transform=validation_transform)
+datasetTest = ImageMaskDataset(image_dirs=image_dirs_test,mask_dirs=mask_dirs_test,transform=validation_transform)
 dataloaderTest = DataLoader(datasetTest,batch_size=2,shuffle=True)
 def display_image(dataset, image_index):
     '''Display the image and corresponding three masks.'''
@@ -156,7 +164,7 @@ def refining(mask):
     mask = (mask * 255).astype(np.uint8)
     while mask.ndim > 2:
         mask = mask[0]
-    kernel = np.ones((3, 3), np.uint8)
+    kernel = np.ones((5, 5), np.uint8)
     mask_clean = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
 
     # 2. Chiudi buchi interni (closing)
@@ -173,25 +181,28 @@ def refining(mask):
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-student_checkpoint = "checkpoints/13_05/decoupledVitBDGfFE.pth"
+#student_checkpoint = "checkpoints/13_05/decoupledVitBDGfFE.pth"
 
-model = sam_model_registry["CMT"](checkpoint=student_checkpoint)
-model.to(device=device)
+#model = sam_model_registry["CMT"](checkpoint=student_checkpoint)
+#model.to(device=device)
 #model.load_state_dict(state_dict)
 #print("Missing keys:", model.load_state_dict(state_dict, strict=False))
 #CARICO UN MODELLO SAM
 #sam_checkpoint = "C:/Users/User/OneDrive - Politecnico di Milano/Documenti/POLIMI/Tesi/distillation/checkpoints/sam_vit_b_01ec64.pth"
-sam_checkpoint = "checkpoints/repvit_sam.pt"
-model_type = "repvit"
+sam_checkpoint = "checkpoints/sam_vit_h_4b8939.pth"
+model_type = "vit_h"
 
 
 
 sam = sam_model_registry[model_type](checkpoint=sam_checkpoint)
 sam.to(device=device)
+
+
+
 #ASSEGNO L'IMAGE ENCODER DISTILLATO A SAM
 #sam.image_encoder = model.image_encoder
 sam.eval()
-model.eval()
+#model.eval()
 predictor = SamPredictor(sam)
 #print("State dict keys:", state_dict.keys())
 """
@@ -250,7 +261,7 @@ for images, labels in dataloaderTest:  # i->batch index, images->batch of images
             # Rimuovi batch e channel dimension se presenti (es: (1, 1024, 1024))
             label = np.squeeze(label)
             image = np.transpose(np.squeeze(image), (1, 2, 0))  # (C,H,W) → (H,W,C)
-            #print(image.shape)
+
             # Binarizza la maschera
             label_bin = (label > 0).astype(np.uint8)
             # Convert to binary mask

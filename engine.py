@@ -39,7 +39,7 @@ def train_one_epoch(model,
 
     Purpose:
         Trains a student model for one epoch using knowledge distillation from a fixed teacher model (e.g., SAM).
-        The student is trained to mimic the teacher’s encoder output or full prediction via a regression loss.
+        The student is trained to mimic the teacher’s encoder output via MSE LOSS.
 
     Arguments:
         model (torch.nn.Module):
@@ -91,8 +91,8 @@ def train_one_epoch(model,
 
         with torch.no_grad():
 
-            outTeach = teacher(images)
-        outStud = model(images) #in teoria posso passare n batch di immagini
+            outTeach = teacher(images)#[B,3,1024,1024]
+        outStud = model(images)#[B,3,1024,1024]
         torch.cuda.empty_cache()
 
         if torch.isnan(outTeach).any():
@@ -386,17 +386,17 @@ def validate_one_epoch(
     Function: validate_one_epoch
 
     Purpose:
-        Evaluates the performance of the **student model** during a single validation epoch
-        by comparing its output against that of a **frozen teacher model** (e.g., SAM).
-        This is typically used during **knowledge distillation**, where the student learns
-        to mimic the teacher.
+        Evaluates the performance of the student model during a single validation epoch
+        by comparing its output against that of a frozen teacher model (e.g., SAM).
+        This is typically used during knowledge distillation, where the student learns
+        to mimic the teacher.The outut of SAM image encoder is compared with the output of the student image encoder.
 
     Arguments:
         model (torch.nn.Module):
-            The **student model** being trained, whose predictions are evaluated here.
+            The student model being trained, whose predictions are evaluated here.
 
         teacher (torch.nn.Module):
-            The **pretrained and frozen teacher model** (e.g., SAM) providing target outputs.
+            The pretrained and frozen teacher model (e.g., SAM) providing target outputs.
             Assumed to output logits or masks from input images.
 
         dataloader (torch.utils.data.DataLoader):

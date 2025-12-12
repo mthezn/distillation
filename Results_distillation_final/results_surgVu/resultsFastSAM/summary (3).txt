@@ -1,0 +1,39 @@
+📊 Dataset:
+   Totale immagini: 203
+   Totale GT boxes: 405
+   Totale predizioni: 323
+
+🎯 METRICHE BOX-LEVEL (Globali):
+   TP: 137, FP: 186, FN: 268
+   Precision: 0.4241
+   Recall: 0.3383
+   F1-Score: 0.3764
+   AP@0.5: 0.1547
+
+📊 METRICHE BOX-LEVEL (Medie per immagine):
+   Precision:  0.4020 ± 0.3815
+   Recall:     0.3374 ± 0.3118
+   F1-Score:   0.3562 ± 0.3205
+   IoU medio:  0.5313 ± 0.4448
+   Dice medio: 0.5590 ± 0.4667
+
+🎯 METRICHE PIXEL-LEVEL (Globali):
+   TP pixels: 30,616,366, FP pixels: 4,856,249
+   FN pixels: 39,115,393, TN pixels: 138,272,920
+   Sensitivity: 0.4391
+   Specificity: 0.9661
+   Precision:   0.8631
+   Dice Score:  0.5820
+   IoU:         0.4105
+   Accuracy:    0.7934
+
+📊 METRICHE PIXEL-LEVEL (Medie per immagine):
+   Sensitivity: 0.4267 ± 0.3267
+   Specificity: 0.9667 ± 0.1317
+   Precision:   0.7273 ± 0.4021
+   Dice Score:  0.5001 ± 0.3690
+   IoU:         0.4124 ± 0.3250
+   Accuracy:    0.7934 ± 0.1442
+
+⏱️  Performance:
+   Latenza media: 178.13 ± 1656.44 ms

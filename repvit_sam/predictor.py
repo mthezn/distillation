@@ -235,8 +235,10 @@ class SamPredictor(torch.nn.Module):
             multimask_output=multimask_output,
         )
 
+
         # Upscale the masks to the original image resolution
         masks = self.model.postprocess_masks(low_res_masks, self.input_size, self.original_size)
+
 
         if not return_logits:
             masks = masks > self.model.mask_threshold

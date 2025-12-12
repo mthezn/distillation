@@ -2,11 +2,11 @@ import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from Encoder.CMT import CMT_Ti
-from repvit_sam.modeling import  Sam, PromptEncoder, MaskDecoder, TwoWayTransformer,ImageEncoderViT,TinyViT
+from repvit_sam.modeling import Sam, PromptEncoder, MaskDecoder, TwoWayTransformer, ImageEncoderViT, TinyViT, RepViT
 from modeling.autoSam import AutoSam
 from DecoderAutoSam.MaskDecoderAuto import MaskDecoderAuto
 import torch
-
+#from EdgeSAM.edge_sam.modeling import RepViT
 from DecoderAutoSam.UnetDecoder import UnetDecoder
 from timm.models import create_model
 from functools import partial
@@ -356,7 +356,14 @@ def build_sam_repvit(checkpoint=None):
         repvit_sam.load_state_dict(state_dict)
     return repvit_sam
 
-
+def build_edge_sam(checkpoint=None, upsample_mode="bicubic"):
+    image_encoder = RepViT(
+        arch="m1",
+        img_size=(1024,1024),
+        upsample_mode=upsample_mode,
+        fuse=True
+    )
+    return _build_sam(image_encoder, checkpoint)
 def build_sam_unet(checkpoint=None):
     """
     Function: build_sam_unet
@@ -411,5 +418,6 @@ sam_model_registry = {
     "repvit": build_sam_repvit,
     "CMT": build_sam_CMT,
     "autoSam": build_sam_encoder_decoder,
-    "autoSamUnet": build_sam_unet
+    "autoSamUnet": build_sam_unet,
+    "edgeSam": build_edge_sam,
 }

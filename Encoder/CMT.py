@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from timm.models import register_model
-from .cmt_module import CMTStem, Patch_Aggregate, CMTBlock
+from Encoder.cmt_module import CMTStem, Patch_Aggregate, CMTBlock
 
 class CMT(nn.Module):
     def __init__(self,
@@ -20,7 +20,7 @@ class CMT(nn.Module):
         size = [img_size // 4, img_size // 8, img_size // 16, img_size // 32]
 
         # Stem layer
-        self.stem = CMTStem(in_channels, stem_channel)
+        self.stem = CMTStem(in_channels, stem_channel) #dimezza dimensione immagine
         self.img_size = img_size
 
         # Patch Aggregation Layer
@@ -30,13 +30,16 @@ class CMT(nn.Module):
         self.patch4 = Patch_Aggregate(patch_channel[2], patch_channel[3])
 
         # CMT Block Layer
-        stage1 = [CMTBlock(img_size=size[0], stride=8, d_k=cmt_channel[0], d_v=cmt_channel[0], num_heads=1, R=R, in_channels=patch_channel[0]) for _ in range(block_layer[0])]
+        stage1 = [CMTBlock(img_size=size[0], stride=16, d_k=cmt_channel[0], d_v=cmt_channel[0], num_heads=1, R=R, in_channels=patch_channel[0]) for _ in range(block_layer[0])]
         self.stage1 = nn.Sequential(*stage1)
+        #16,8,8,1 small
+        #8,4,2,1 large
 
-        stage2 = [CMTBlock(img_size=size[1], stride=4, d_k=cmt_channel[1]//2, d_v=cmt_channel[1]//2, num_heads=2, R=R, in_channels=patch_channel[1]) for _ in range(block_layer[1])]
+        stage2 = [CMTBlock(img_size=size[1], stride=8, d_k=cmt_channel[1]//2, d_v=cmt_channel[1]//2, num_heads=2, R=R, in_channels=patch_channel[1]) for _ in range(block_layer[1])]
         self.stage2 = nn.Sequential(*stage2)
+        #non mi ricordo se su 3 c'e stride 8 o 4
 
-        stage3 = [CMTBlock(img_size=size[2], stride=2, d_k=cmt_channel[2]//4, d_v=cmt_channel[2]//4, num_heads=4, R=R, in_channels=patch_channel[2]) for _ in range(block_layer[2])]
+        stage3 = [CMTBlock(img_size=size[2], stride=8, d_k=cmt_channel[2]//4, d_v=cmt_channel[2]//4, num_heads=4, R=R, in_channels=patch_channel[2]) for _ in range(block_layer[2])]
         self.stage3 = nn.Sequential(*stage3)
 
         stage4 = [CMTBlock(img_size=size[3], stride=1, d_k=cmt_channel[3]//8, d_v=cmt_channel[3]//8, num_heads=8, R=R, in_channels=patch_channel[3]) for _ in range(block_layer[3])]
@@ -50,18 +53,27 @@ class CMT(nn.Module):
 
     def forward(self, x):
         x = self.stem(x)
+        #print(x.shape)
 
         x = self.patch1(x)
+        #print(x.shape)
         x = self.stage1(x)
+        #print(x.shape)
 
         x = self.patch2(x)
+        #print(x.shape)
         x = self.stage2(x)
+        #print(x.shape)
 
         x = self.patch3(x)
+        #print(x.shape)
         x = self.stage3(x)
+        #print(x.shape)
 
         x = self.patch4(x)
+        #print(x.shape)
         x = self.stage4(x)
+        #print(x.shape)
 
         # Conv per ridurre i canali a 256
         x = self.conv(x)
@@ -78,10 +90,10 @@ class CMT(nn.Module):
 def CMT_Ti(pretrained=False, img_size=1024, output_dim=256, **kwargs):
     model = CMT(
         in_channels=3,
-        stem_channel=16,
+        stem_channel=10,#10small 16large
         cmt_channel=[46, 92, 184, 368],
         patch_channel=[46, 92, 184, 368],
-        block_layer=[2, 2, 10, 2],
+        block_layer=[2, 2, 4, 2],#2,2,4,2 small 2,2,10,2 large
         R=3.6,
         img_size=img_size,
         output_dim=output_dim,
@@ -139,3 +151,5 @@ def test():
     print(f"CMT_XS param: {calc_param(cmt_xs) / 1e6 : .2f} M")
     print(f"CMT_X  param: {calc_param(cmt_x) / 1e6 : .2f} M")
     print(f"CMT_B  param: {calc_param(cmt_b) / 1e6 : .2f} M")
+
+

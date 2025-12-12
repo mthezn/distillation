@@ -54,10 +54,10 @@ class AutoSam(nn.Module):
         return self.pixel_mean.device
 
     @torch.no_grad()
-    def forward(
+    def forward( #QUESTO FORWARD NON VA BENE PER ESSERE IMPIEGATO CON AUTOSAMUNET, IL MODELLO FUNZIONA SOLO SE LO CHIAMI SEPRATAMENTE NECODER E DECODER. bIOSGNA MODIFCARE I NMOMI O DIFFERENZIARE IN BASE AL DECODER
         self,
         batched_input: List[Dict[str, Any]],
-        multimask_output: bool,
+       multimask_output: bool = False,
     ) -> List[Dict[str, torch.Tensor]]:
         """
         Predicts masks end-to-end from provided images and prompts.
@@ -86,16 +86,17 @@ class AutoSam(nn.Module):
 
         # Encode the images
         input_images = torch.stack([self.preprocess(x["image"]) for x in batched_input],dim = 0)
-        image_embeddings, image_pe = self.image_encoder(input_images)
+        image_embeddings= self.image_encoder(input_images)
+       # print(type(image_embeddings),getattr(image_embeddings, 'shape', None))
 
         outputs = []
         # Decode the masks
         for image_record,curr_embeddings in zip(batched_input, image_embeddings):
-            low_res, iou_pred = self.mask_decoder(
-                image_embeddings=image_embeddings,
+            low_res = self.mask_decoder(
+                x=image_embeddings,
 
 
-                multimask_output=multimask_output,
+                #multimask_output=multimask_output,
             )
 
             masks = self.postprocess_masks(
@@ -107,7 +108,7 @@ class AutoSam(nn.Module):
             outputs.append(
                 {
                 "masks": masks,
-                "iou_predictions": iou_pred,
+                #"iou_predictions": iou_pred,
                 "low_res_logits": low_res,
                 }
         )

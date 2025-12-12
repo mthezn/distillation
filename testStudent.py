@@ -56,7 +56,10 @@ student_checkpoint = "checkpoints/checkpoints_mmagro/decoupledVitHhkuYf.pth"
 state_dict = torch.load(student_checkpoint, map_location=torch.device('cpu'))
 model = sam_model_registry["CMT"](checkpoint=None)
 model.load_state_dict(state_dict)
-
+count=0
+for param in model.image_encoder.parameters():
+    count+=1
+print(count)
 
 #CARICO UN MODELLO SAM
 

@@ -23,48 +23,35 @@ from utility import generate_random_name, contains_instrument
 
 ############################################################################################################
 
-
+"""WANDB SETTINGS"""
 wandb.login(key='14497a5de45116d579bde37168ccf06f78c2928e')  # Replace 'your_api_key' with your actual API key
 name = "autoSamVitHUnet"+generate_random_name(5)
-
-datasetCholec = load_dataset("minwoosun/CholecSeg8k", trust_remote_code=True)
-
+####################################################################################################################
 
 
-filtered_ds = datasetCholec["train"].filter(contains_instrument)
 
-
+"SETTINGS"
 seed = 42
 os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
 torch.manual_seed(seed)
 np.random.seed(seed)
 device = "cuda" if torch.cuda.is_available() else "cpu"
+##############################################################################################################
 
 
 
 
-#CREO UN MODELLO CON ENCODER CMT CHE USERO  COME TEACHER, DISTILLATO DA UN SAM
 
 
-teacher_checkpoint = ("checkpoints/checkpoints_mmagro/"
-                      ""
-                      ".pth")  # Path to the teacher model checkpoint
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
+
+
+"""TEACHER LOADING"""
+
+ # Path to the teacher model checkpoint
 sam_checkpoint = "checkpoints/sam_vit_h_4b8939.pth"  # Path to the SAM checkpoint
 sam= sam_model_registry["vit_h"](checkpoint=sam_checkpoint).to(device=device)
-
-
-model = sam_model_registry["CMT"](checkpoint=None)
-
-model.load_state_dict(torch.load(teacher_checkpoint, map_location=device), strict=False)  # Load the state dict into the model
-
-
-model.to(device=device)
-sam.image_encoder = (model.image_encoder)  # Clone the image encoder
-
-
-
+sam.load_state_dict(torch.load(sam_checkpoint, map_location=device), strict=False)  # Load the state dict into the model
 sam.eval()
 
 
@@ -73,13 +60,22 @@ for param in sam.parameters():
     param.requires_grad = False
 for param in sam.mask_decoder.parameters():
     param.requires_grad = False
+#####################################################################################################################
 
 
-#MODELLO STUDENT
+
+
+"""STUDENT LOADING"""
+encoder_checkpoint="checkpointsLight/decoupledVitH22ps1.pth"  #MODELLO STUDENT (encoder distillato e decoder non trainato)
+
+model = sam_model_registry["autoSamUnet"](checkpoint=None)
+
+model.load_state_dict(torch.load(encoder_checkpoint, map_location=device), strict=False)  # Load the state dict into the model
 
 student = sam_model_registry["autoSamUnet"]()
+
 cloned_image_encoder = copy.deepcopy(model.image_encoder)  # Clone the image encoder
-cloned_image_encoder.load_state_dict(model.image_encoder.state_dict())  # Copy the weights
+cloned_image_encoder.load_state_dict(model.image_encoder.state_dict())  # Copy the weights  #qusta parte si potra togliere
 student.image_encoder = cloned_image_encoder
 
 student.to(device=device)
@@ -89,27 +85,12 @@ for param in student.parameters():
     param.requires_grad = False
 for param in student.mask_decoder.parameters():
     param.requires_grad = True
-
-batch_size = 2
-
-lr = 0.0001
-
-
-optimizer_cfg = {
-    'opt': 'adamw',
-    'lr': lr,
-    'weight_decay': 1e-4,
-}
-optimizer = create_optimizer_v2(student,**optimizer_cfg)
-loss_scaler = NativeScaler()
-scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer,mode = 'min',factor = 0.1,patience = 3,threshold=0.000001)
-
-criterion = dice_loss
-epochs = 30
+#################################################################################################################################
 
 
 
 
+"""AUGMENTATIONS"""
 train_transform = A.Compose([
     A.Resize(1024, 1024),
     A.HorizontalFlip(p=0.5),
@@ -121,34 +102,16 @@ train_transform = A.Compose([
     ToTensorV2()
 ])
 
-
 validation_transform = A.Compose([
     A.Resize(1024, 1024),
     A.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)),
     ToTensorV2()
 ])
-run = wandb.init(
-    # Set the wandb entity where your project will be logged (generally your team name).
-
-    # Set the wandb project where this run will be logged.
-    project="autoSamDistillationNew",
-    name=name,
-    # Track hyperparameters and run metadata.
-    config={
-        "learning_rate": lr,
-        "architecture": "CMT/Unet",
-        "dataset": "Miccai",
-        "epochs": epochs,
-        "criterion": "DiceLoss",
-        "batch_size": batch_size,
-        "optimizer": optimizer_cfg['opt'],
-        "weight_decay": optimizer_cfg['weight_decay'],
-        "augmentation": str(train_transform),
+#########################################################################################################################
 
 
-    }
 
-)
+"""DIRECTORIES FOR MICCAI DATASET"""
 #DIRECTORIES
 image_dirs_val = ["/home/mdezen/distillation/MICCAI/instrument_1_4_training/instrument_dataset_4/left_frames"]
 mask_dirs_val = ["/home/mdezen/distillation/MICCAI/instrument_1_4_training/instrument_dataset_4/ground_truth/Large_Needle_Driver_Left_labels",
@@ -196,6 +159,67 @@ mask_dirs_train = [
 
 
 ]
+##########################################################################################################################
+"""TRAINING SETTINGS"""
+
+batch_size = 2
+lr = 0.0001
+optimizer_cfg = {
+    'opt': 'adamw',
+    'lr': lr,
+    'weight_decay': 1e-4,
+}
+optimizer = create_optimizer_v2(student,**optimizer_cfg)
+criterion = torch.nn.BCEWithLogitsLoss()
+epochs = 30
+loss_scaler = NativeScaler()
+scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+    optimizer,
+    T_max=100,
+    eta_min=1e-6
+)
+patience = 5  # Number of epochs to wait for improvement
+best_val_loss = float('inf')
+epochs_no_improve = 0
+checkpoint_path = "checkpoints/28_07/" + name+".pth"
+
+torch.cuda.empty_cache()
+gc.collect()
+
+#####################################################################
+
+
+"""WANDB INITIALIZATION"""
+run = wandb.init(
+    # Set the wandb entity where your project will be logged (generally your team name).
+
+    # Set the wandb project where this run will be logged.
+    project="autoSamDistillationNew",
+    name=name,
+    # Track hyperparameters and run metadata.
+    config={
+        "learning_rate": lr,
+        "architecture": "CMT/Unet",
+        "dataset": "Miccai",
+        "epochs": epochs,
+        "criterion": "BCELoss",
+        "batch_size": batch_size,
+        "optimizer": optimizer_cfg['opt'],
+        "weight_decay": optimizer_cfg['weight_decay'],
+        "augmentation": str(train_transform),
+
+
+    }
+
+)
+###########################################################################################
+
+
+
+"""DATASETS LOADING"""
+
+datasetCholec = load_dataset("minwoosun/CholecSeg8k", trust_remote_code=True)
+filtered_ds = datasetCholec["train"].filter(contains_instrument)
 
 datasetVal = ImageMaskDataset(image_dirs=image_dirs_val,mask_dirs=mask_dirs_val,transform=validation_transform,increase=False)
 dataloaderVal = DataLoader(datasetVal,batch_size=batch_size,shuffle=True)
@@ -210,15 +234,12 @@ for images, masks in dataloader:
     print(f"Batch di immagini: {images.shape}")  # (batch_size, 3, 224, 224)
     print(f"Batch di maschere: {masks.shape}")  # (batch_size, 1, 224, 224)
     break
+####################################################################################################
 
-#TRAINING
-patience = 5  # Number of epochs to wait for improvement
-best_val_loss = float('inf')
-epochs_no_improve = 0
-checkpoint_path = "checkpoints/28_07/" + name+".pth"
 
-torch.cuda.empty_cache()
-gc.collect()
+
+"""TRAINING LOOP"""
+
 for epoch in range(0, epochs):
     print(f"Epoch {epoch + 1}/{epochs}")
 
@@ -246,5 +267,5 @@ for epoch in range(0, epochs):
         print("Early stopping triggered.")
         break
 
-
+############################################################################################################
 

@@ -100,7 +100,7 @@ def refining(mask):
     mask_clean = cv2.morphologyEx(mask_clean, cv2.MORPH_CLOSE, kernel)
 
     # 3. (opzionale) Gaussian blur per bordi morbidi
-    mask_blurred = cv2.GaussianBlur(mask_clean, (5, 5), 0)
+    mask_blurred = cv2.GaussianBlur(mask_clean, (3, 3), 0)
     mask_blurred = mask_blurred / 255
 
     return mask_blurred
@@ -110,8 +110,16 @@ def refining(mask):
 
 ########################################################################################################
 
-image_dirs_val = ["MICCAI/instrument_1_4_testing/instrument_dataset_2/left_frames"]
-mask_dirs_val = ["MICCAI/instrument_2017_test/instrument_2017_test/instrument_dataset_2/gt/BinarySegmentation"]
+image_dirs_test = ["MICCAI/instrument_1_4_testing/instrument_dataset_1/left_frames",
+                   "MICCAI/instrument_1_4_testing/instrument_dataset_2/left_frames",
+                   "MICCAI/instrument_1_4_testing/instrument_dataset_3/left_frames",
+                   "MICCAI/instrument_1_4_testing/instrument_dataset_4/left_frames",
+                   ]
+mask_dirs_test = ["MICCAI/instrument_2017_test/instrument_2017_test/instrument_dataset_1/gt/TypeSegmentationRescaled",
+                  "MICCAI/instrument_2017_test/instrument_2017_test/instrument_dataset_2/gt/TypeSegmentationRescaled",
+                  "MICCAI/instrument_2017_test/instrument_2017_test/instrument_dataset_3/gt/TypeSegmentationRescaled",
+                  "MICCAI/instrument_2017_test/instrument_2017_test/instrument_dataset_4/gt/TypeSegmentationRescaled",
+]
 #image_dirs_val = ["MICCAI/instrument_1_4_training/instrument_dataset_4/left_frames"]
 #mask_dirs_val = ["MICCAI/instrument_1_4_training/instrument_dataset_4/ground_truth/Large_Needle_Driver_Left_labels"]
 image_dirs_train = [
@@ -139,14 +147,14 @@ def contains_instrument(example):
 
 
 img_dir=["/home/shared-nearmrs/MS_dataset/real"]
-datasetTest = LeedsDataset(image_dirs=img_dir, transform=validation_transform,)
-
+#datasetTest = LeedsDataset(image_dirs=img_dir, transform=validation_transform,)
+datasetTest = ImageMaskDataset(image_dirs=image_dirs_test,mask_dirs=mask_dirs_test, transform=validation_transform)
 dataloaderTest = DataLoader(datasetTest, batch_size=2, shuffle=True)
 
 
 # CARICO UN MODELLO SAM
 # sam_checkpoint = "C:/Users/User/OneDrive - Politecnico di Milano/Documenti/POLIMI/Tesi/distillation/checkpoints/sam_vit_b_01ec64.pth"
-autosam_checkpoint = "checkpoints/28_07/autoSamFineUnetMUcH0.pth"
+autosam_checkpoint = "checkpointsLight/autoSamFineUnetk57VL.pth"
 model_type = "autoSamUnet"
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -163,7 +171,7 @@ model.eval()
 
 # predictor = SamPredictor(model)
 timeDf = pd.DataFrame(columns=['time', 'index', 'iou','dice','sensitivity','specificity'])
-save_dir = "results_seg"
+save_dir = "results_seg2"
 os.makedirs(save_dir, exist_ok=True)
 n = 0
 for images, labels in dataloaderTest:  # i->batch index, images->batch of images, labels->batch of labels
@@ -198,10 +206,11 @@ for images, labels in dataloaderTest:  # i->batch index, images->batch of images
 
         low_res = model.mask_decoder(image_embedding)
         low_res = model.postprocess_masks(low_res,(1024,1024),(1024,1024))
+        end_time = time.time()
         mask = low_res >0
         mask = mask.detach().cpu().numpy()
         mask = refining(mask)
-        end_time = time.time()
+
         #mask = mask.cpu().numpy()
 
 
@@ -235,7 +244,7 @@ for images, labels in dataloaderTest:  # i->batch index, images->batch of images
 
 
 
-        axs[1].imshow(mask)
+        axs[1].imshow(mask, cmap='gray')
         axs[1].set_title("Prediction")
         axs[1].axis("off")
 
@@ -248,15 +257,15 @@ for images, labels in dataloaderTest:  # i->batch index, images->batch of images
 
 
         latency = (end_time - start_time) * 1000
-        #iou = calculate_iou(mask, label)
-        #dice = dice_coefficient(mask, label)
-        #sens = sensitivity(mask, label)
-        #spec = specificity(mask, label)
+        iou = calculate_iou(mask, label)
+        dice = dice_coefficient(mask, label)
+        sens = sensitivity(mask, label)
+        spec = specificity(mask, label)
 
-        #timeDf.loc[len(timeDf)] = [latency, len(timeDf), iou,dice,sens,spec]
+        timeDf.loc[len(timeDf)] = [latency, len(timeDf), iou,dice,sens,spec]
 
 
-#timeDf.to_csv('RISULTATI/TimeDfBBoxAutoSam.csv', index=False)
+timeDf.to_csv('RISULTATI/TimeDfBBoxAutoSam.csv', index=False)
 pd.set_option('display.max_rows', None)
 print(timeDf)
 
