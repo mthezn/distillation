@@ -1,7 +1,0 @@
-Class,True_Positives,False_Positives,False_Negatives,Error_Rate_%
-Large_Needle_Driver,18,0,125,87.41258741258741
-Forceps,0,118,0,100.0
-Grasping_Retractor,0,4,0,100.0
-Maryland_Bipolar_Forceps,0,0,0,0.0
-Monopolar_Curved_Scissors,0,0,0,0.0
-Vessel_Sealer,0,3,0,100.0

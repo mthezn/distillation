@@ -1,8 +1,0 @@
-Class,Support,TP,FP,FN,Accuracy,Precision,Recall,F1-Score
-Large_Needle_Driver,108,0,0,108,0.495,0.000,0.000,0.000
-Forceps,106,106,108,0,0.495,0.495,1.000,0.662
-Grasping_Retractor,0,0,0,0,1.000,0.000,0.000,0.000
-Maryland_Bipolar_Forceps,0,0,0,0,1.000,0.000,0.000,0.000
-Monopolar_Curved_Scissors,0,0,0,0,1.000,0.000,0.000,0.000
-Vessel_Sealer,0,0,0,0,1.000,0.000,0.000,0.000
-all,214,106,108,108,0.832,0.083,0.167,0.110
